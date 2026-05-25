@@ -1,0 +1,25 @@
+module ReactNativeWatchOSCxx {
+    header "ReactNativeWatchOSCxx/RNWShadowNode.h"
+    header "ReactNativeWatchOSCxx/RNWHermesHost.h"
+    header "ReactNativeWatchOSCxx/RNWTurboModuleRegistry.h"
+
+    // Cxx category — declares C++ types (`facebook::react::TurboModule`,
+    // `std::function`, `std::shared_ptr`) that Swift can't see. Marked
+    // `textual` so the Swift module compiler treats it as a plain
+    // `#include` rather than modularizing it. ObjC++ module authors
+    // include from `.mm` files only.
+    textual header "ReactNativeWatchOSCxx/RNWTurboModuleRegistry+Cxx.h"
+
+    export *
+}
+
+// Note: `<React/RCTBridgeModule.h>` and `<ReactCommon/RCTTurboModule.h>`
+// (the watchOS-safe forks of RN's TurboModule headers) ship at
+// `Headers/React/...` and `Headers/ReactCommon/...` inside the xcframework
+// — they're not part of THIS module. Module authors include them via
+// the standard `#import <React/...>` / `#import <ReactCommon/...>` paths
+// from their own `.mm` files. The xcframework's Headers/ root is on the
+// header search path; the forks are found there. The two ObjC headers
+// would otherwise collide with React Native's pod on cross-platform
+// builds — keeping them outside this module avoids any `import
+// ReactNativeWatchOSCxx` from Swift dragging in `RCTBridgeModule`.

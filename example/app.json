@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "watchos-example",
+    "slug": "watchos-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.appsent.watchosexample",
+      "supportsTablet": false
+    },
+    "plugins": [
+      "@bacons/apple-targets",
+      ["@appsent-co/react-native-watchos", { "targetName": "watch" }]
+    ]
+  }
+}

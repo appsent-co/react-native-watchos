@@ -1,0 +1,132 @@
+{
+  "name": "@appsent-co/react-native-watchos",
+  "version": "0.1.0",
+  "description": "Build WatchOS apps in react-native",
+  "main": "./plugin/src/index.js",
+  "bin": {
+    "react-native-watchos": "./cli/init.js"
+  },
+  "exports": {
+    ".": "./plugin/src/index.js",
+    "./metro-config": {
+      "types": "./metro-config.d.ts",
+      "default": "./metro-config.js"
+    },
+    "./renderer": "./src/index.ts",
+    "./dev-support": "./src/devSupport/index.ts",
+    "./watch-connectivity": "./src/watchConnectivity/index.ts",
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
+  "codegenConfig": {
+    "name": "RNWatchConnectivitySpec",
+    "type": "modules",
+    "jsSrcsDir": "src/watchConnectivity/specs"
+  },
+  "files": [
+    "app.plugin.js",
+    "metro-config.js",
+    "metro-config.d.ts",
+    "react-native.config.js",
+    "RNWatchConnectivity.podspec",
+    "cli",
+    "plugin",
+    "src",
+    "apple",
+    "cocoapods",
+    "build/xcframework",
+    "!**/.*"
+  ],
+  "scripts": {
+    "build:xcframework": "./scripts/build-xcframework.sh",
+    "lint": "eslint .",
+    "clean": "del-cli build/xcframework example/ios",
+    "docs": "pnpm --filter react-native-watchos-docs start",
+    "docs:build": "pnpm --filter react-native-watchos-docs build",
+    "release": "release-it --only-version"
+  },
+  "keywords": [
+    "react-native",
+    "watchos",
+    "apple-watch",
+    "expo",
+    "expo-plugin",
+    "hermes",
+    "swift-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/appsent-co/react-native-watchos.git"
+  },
+  "author": "Appsent <maxence@appsent.com> (https://appsent.com)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/appsent-co/react-native-watchos/issues"
+  },
+  "homepage": "https://github.com/appsent-co/react-native-watchos#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "@commitlint/config-conventional": "^19.8.1",
+    "@eslint/js": "^9.35.0",
+    "@evilmartians/lefthook": "^1.12.3",
+    "@release-it/conventional-changelog": "^10.0.1",
+    "@types/react": "^19.1.0",
+    "@types/react-reconciler": "^0.28.9",
+    "commitlint": "^19.8.1",
+    "del-cli": "^6.0.0",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^15.14.0",
+    "prettier": "^3.6.2",
+    "react": "19.1.0",
+    "react-reconciler": "0.32.0",
+    "release-it": "^19.0.4",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@expo/config-plugins": "^54.0.0",
+    "whatwg-fetch": "^3.6.20"
+  },
+  "peerDependencies": {
+    "@bacons/apple-targets": ">=4.0.0",
+    "expo": ">=54.0.0",
+    "react": "*",
+    "react-native": "*",
+    "react-reconciler": "*"
+  },
+  "packageManager": "pnpm@10.10.0",
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "release-it": {
+    "git": {
+      "commitMessage": "chore: release ${version}",
+      "tagName": "v${version}"
+    },
+    "npm": {
+      "publish": true
+    },
+    "github": {
+      "release": true
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "preset": {
+          "name": "angular"
+        }
+      }
+    }
+  },
+  "prettier": {
+    "quoteProps": "consistent",
+    "singleQuote": true,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "useTabs": false
+  }
+}

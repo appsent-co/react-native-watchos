@@ -1,0 +1,37 @@
+{
+  "name": "react-native-watchos-example",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "prebuild": "expo prebuild -p ios --clean",
+    "android": "expo run:android"
+  },
+  "dependencies": {
+    "@bacons/apple-targets": "^4.0.7",
+    "expo": "~54.0.33",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "@appsent-co/react-native-watchos": "workspace:*",
+    "react-reconciler": "0.32.0",
+    "react-refresh": "0.14.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "^19.1.0",
+    "@types/react-reconciler": "^0.28.9"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "codegenConfig": {
+    "name": "WatchAppSpecs",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "outputDir": {
+      "ios": "ios/build/generated/watchos-codegen"
+    }
+  }
+}
