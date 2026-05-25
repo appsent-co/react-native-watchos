@@ -1,6 +1,6 @@
-# @appsent-co/react-native-watchos
+![@appsent-co/react-native-watchos](https://github.com/appsent-co/react-native-watchos/blob/main/docs/static/header.png?raw=true)
 
-Build watchOS apps with React Native, rendered as native SwiftUI. React
+Build watchOS apps with React, rendered as native SwiftUI. React
 runs in Hermes on the watch and drives a SwiftUI view tree via JSI — no
 WebViews, no canvas, no compromises.
 

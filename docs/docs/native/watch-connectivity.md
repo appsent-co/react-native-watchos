@@ -13,7 +13,7 @@ Capabilities:
 - Bidirectional message passing (live and queued).
 - User-info and application-context transfer.
 - Reachability and activation state subscriptions.
-- Binary payloads (`Data` <-> `Uint8Array`).
+- Binary payloads (`Data` ↔ `Uint8Array`).
 
 ```ts
 import { WatchConnectivity } from '@appsent-co/react-native-watchos/watch-connectivity';

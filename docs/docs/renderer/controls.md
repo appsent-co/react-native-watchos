@@ -33,7 +33,7 @@ import {
 | --- | --- |
 | `onPress` | `() => void` |
 
-Style with [`buttonStyle`](./modifiers#component-styles) — `'bordered'`,
+Style with [`buttonStyle`](./modifiers#modifier-families) — `'bordered'`,
 `'borderedProminent'`, `'plain'`, etc.
 
 ## Toggle
@@ -133,7 +133,7 @@ const [size, setSize] = useState('m');
 | `options` | `{ value: string; label: string }[]` | Choices. |
 | `onSelectionChange` | `(value: string) => void` | — |
 
-Style with [`pickerStyle`](./modifiers#component-styles) — `'wheel'`,
+Style with [`pickerStyle`](./modifiers#modifier-families) — `'wheel'`,
 `'navigationLink'`, etc.
 
 ## DatePicker
