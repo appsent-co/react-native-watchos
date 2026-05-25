@@ -39,6 +39,36 @@ Two things worth noting:
   your React tree into the SwiftUI root view hosted in
   `ContentView.swift`.
 
+:::tip Move `App` into its own file for Fast Refresh
+A module is a Fast Refresh boundary only when all its top-level
+exports are React components. Because `index.watchos.tsx` calls
+`render(...)` — a side effect — edits to it trigger a full reload
+and reset state. Split `App` out so saves apply in place:
+
+```tsx title="App.watchos.tsx"
+import { Text, VStack } from '@appsent-co/react-native-watchos/renderer';
+
+export default function App() {
+  return (
+    <VStack>
+      <Text>Hello from watchOS</Text>
+    </VStack>
+  );
+}
+```
+
+```tsx title="index.watchos.tsx"
+import '@appsent-co/react-native-watchos/dev-support';
+import { render } from '@appsent-co/react-native-watchos/renderer';
+import App from './App';
+
+render(<App />);
+```
+
+The snippets below keep everything inline for readability — split
+once you start iterating in earnest.
+:::
+
 ## Add state
 
 ```tsx

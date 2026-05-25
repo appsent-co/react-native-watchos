@@ -38,7 +38,8 @@ You'll need:
 npx expo install @appsent-co/react-native-watchos @bacons/apple-targets
 ```
 
-`@bacons/apple-targets` provides the watch target itself (icons,
+[`@bacons/apple-targets`](https://github.com/EvanBacon/expo-apple-targets)
+provides the watch target itself (icons,
 Info.plist, capabilities). This package owns the runtime (JS engine,
 renderer, autolinking, bundle delivery).
 
