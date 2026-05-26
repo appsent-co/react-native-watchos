@@ -34,6 +34,13 @@ async function main() {
   const targetsRoot = path.join(cwd, 'targets');
   const existing = listWatchTargets(targetsRoot);
 
+  // `create-target watch` loads the Expo config internally, which runs our
+  // plugin's order assertion. If `npx expo install` auto-added us before
+  // `@bacons/apple-targets`, that assertion throws and create-target exits 1
+  // before we ever get to patchAppJson. Strip our entry first; patchAppJson
+  // reinserts it in the correct position after create-target succeeds.
+  stripOurPluginFromAppJson(cwd);
+
   console.log('› Running `npx create-target watch`…');
   await spawnInherit('npx', ['--yes', 'create-target', 'watch']);
 
@@ -59,6 +66,7 @@ async function main() {
   console.log('  • Next:          npx expo prebuild -p ios --clean');
 }
 
+/** @param {string} targetsRoot */
 function listWatchTargets(targetsRoot) {
   if (!fs.existsSync(targetsRoot)) return [];
   const out = [];
@@ -70,6 +78,7 @@ function listWatchTargets(targetsRoot) {
   return out;
 }
 
+/** @param {string} dir */
 function isWatchTargetConfig(dir) {
   for (const f of ['expo-target.config.json', 'expo-target.config.js']) {
     const p = path.join(dir, f);
@@ -80,6 +89,7 @@ function isWatchTargetConfig(dir) {
   return false;
 }
 
+/** @param {string} targetDir */
 function writeContentView(targetDir) {
   const dest = path.join(targetDir, 'ContentView.swift');
   const src = path.join(TEMPLATES, 'ContentView.swift');
@@ -87,6 +97,7 @@ function writeContentView(targetDir) {
   console.log(`› Wrote ${path.relative(process.cwd(), dest)}`);
 }
 
+/** @param {string} cwd */
 function writeEntryFile(cwd) {
   for (const name of ENTRY_NAMES) {
     if (fs.existsSync(path.join(cwd, name))) {
@@ -99,6 +110,47 @@ function writeEntryFile(cwd) {
   console.log(`› Wrote ${path.relative(cwd, dest)}`);
 }
 
+/**
+ * @param {unknown} entry
+ * @param {string} name
+ */
+const isEntry = (entry, name) =>
+  Array.isArray(entry) ? entry[0] === name : entry === name;
+
+/**
+ * @param {string} cwd
+ */
+function stripOurPluginFromAppJson(cwd) {
+  const p = path.join(cwd, 'app.json');
+  if (!fs.existsSync(p)) return;
+
+  /** @type {{ expo?: { plugins?: Array<unknown> } }} */
+  const json = JSON.parse(fs.readFileSync(p, 'utf8'));
+  const plugins =
+    json && json.expo && Array.isArray(json.expo.plugins)
+      ? json.expo.plugins
+      : null;
+  if (!plugins) return;
+
+  let removed = 0;
+  for (let i = plugins.length - 1; i >= 0; i--) {
+    if (isEntry(plugins[i], '@appsent-co/react-native-watchos')) {
+      plugins.splice(i, 1);
+      removed++;
+    }
+  }
+  if (removed) {
+    fs.writeFileSync(p, JSON.stringify(json, null, 2) + '\n');
+    console.log(
+      `› Removed pre-existing @appsent-co/react-native-watchos entry from ${path.relative(cwd, p)} (will reinsert in correct position).`
+    );
+  }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} targetName
+ */
 function patchAppJson(cwd, targetName) {
   const p = path.join(cwd, 'app.json');
   if (!fs.existsSync(p)) {
@@ -112,12 +164,10 @@ function patchAppJson(cwd, targetName) {
   }
 
   const raw = fs.readFileSync(p, 'utf8');
+  /** @type {{ expo?: { plugins?: Array<unknown> } }} */
   const json = JSON.parse(raw);
   const expo = (json.expo = json.expo || {});
   const plugins = (expo.plugins = expo.plugins || []);
-
-  const isEntry = (entry, name) =>
-    Array.isArray(entry) ? entry[0] === name : entry === name;
 
   // `npx expo install` auto-adds the plugin as a bare string in the wrong
   // position (before @bacons/apple-targets) and with no targetName. Strip
@@ -131,8 +181,8 @@ function patchAppJson(cwd, targetName) {
   }
 
   const entry = ['@appsent-co/react-native-watchos', { targetName }];
-  const baconIdx = plugins.findIndex((e) =>
-    isEntry(e, '@bacons/apple-targets')
+  const baconIdx = plugins.findIndex(
+    /** @param {unknown} e */ (e) => isEntry(e, '@bacons/apple-targets')
   );
   if (baconIdx >= 0) plugins.splice(baconIdx + 1, 0, entry);
   else plugins.push(entry);
@@ -147,6 +197,11 @@ function patchAppJson(cwd, targetName) {
   }
 }
 
+/**
+ * @param {string} cmd
+ * @param {string[]} args
+ * @returns {Promise<void>}
+ */
 function spawnInherit(cmd, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: 'inherit' });
