@@ -37,10 +37,11 @@ const sidebars: SidebarsConfig = {
         'navigation/sheet',
       ],
     },
+    'watch-connectivity',
     {
       type: 'category',
       label: 'Native modules',
-      items: ['native/turbo-modules', 'native/watch-connectivity'],
+      items: ['native/turbo-modules'],
     },
     {
       type: 'category',

@@ -164,4 +164,4 @@ Either shake the watch to reload (~2.3 g) or rerun `expo run:ios`.
 - Browse the [Renderer overview](../renderer/overview) for the full
   component surface.
 - Send data from the phone — see
-  [Watch Connectivity](../native/watch-connectivity).
+  [Watch Connectivity](../watch-connectivity).

@@ -266,4 +266,4 @@ system-provided back gesture. See
 - Page between screens with the Digital Crown — see
   [TabView](../navigation/tab-view).
 - Send data to/from the phone — see
-  [Watch Connectivity](../native/watch-connectivity).
+  [Watch Connectivity](../watch-connectivity).
