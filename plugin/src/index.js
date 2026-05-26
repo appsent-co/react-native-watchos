@@ -49,6 +49,7 @@ const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
  * @type {import('@expo/config-plugins').ConfigPlugin<ReactNativeWatchOSPluginOpts | void>}
  */
 const withReactNativeWatchOS = (config, opts) => {
+  assertPluginOrder(config);
   const targetName = (opts && opts.targetName) || 'watch';
   const bundleName = (opts && opts.bundleName) || 'main';
   const entryFile = opts && opts.entryFile;
@@ -64,6 +65,43 @@ const withReactNativeWatchOS = (config, opts) => {
     [withWatchBundleScript, { targetName, bundleName, entryFile }],
   ]);
 };
+
+/**
+ * @param {{ plugins?: Array<string | [string, unknown] | unknown> }} config
+ */
+function assertPluginOrder(config) {
+  const plugins = Array.isArray(config && config.plugins)
+    ? config.plugins
+    : null;
+  if (!plugins) return;
+
+  /** @param {unknown} e */
+  const nameOf = (e) =>
+    typeof e === 'string' ? e : Array.isArray(e) ? e[0] : null;
+  const ourIdx = plugins.findIndex(
+    (e) => nameOf(e) === '@appsent-co/react-native-watchos'
+  );
+  const baconsIdx = plugins.findIndex(
+    (e) => nameOf(e) === '@bacons/apple-targets'
+  );
+  if (ourIdx < 0) return;
+
+  if (baconsIdx < 0) {
+    throw new Error(
+      '[@appsent-co/react-native-watchos] requires "@bacons/apple-targets" ' +
+        'to be present in your Expo plugins array (before this plugin). ' +
+        'Run `npx react-native-watchos init` to wire it up.'
+    );
+  }
+  if (baconsIdx > ourIdx) {
+    throw new Error(
+      '[@appsent-co/react-native-watchos] must come AFTER ' +
+        '"@bacons/apple-targets" in your Expo plugins array, so the watch ' +
+        'target exists when this plugin patches the pbxproj. ' +
+        'Run `npx react-native-watchos init` to fix the order.'
+    );
+  }
+}
 
 module.exports = withReactNativeWatchOS;
 module.exports.default = withReactNativeWatchOS;

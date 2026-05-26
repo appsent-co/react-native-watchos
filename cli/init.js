@@ -119,11 +119,15 @@ function patchAppJson(cwd, targetName) {
   const isEntry = (entry, name) =>
     Array.isArray(entry) ? entry[0] === name : entry === name;
 
-  if (plugins.some((e) => isEntry(e, '@appsent-co/react-native-watchos'))) {
-    console.log(
-      '› @appsent-co/react-native-watchos plugin already present in app.json.'
-    );
-    return;
+  // `npx expo install` auto-adds the plugin as a bare string in the wrong
+  // position (before @bacons/apple-targets) and with no targetName. Strip
+  // any existing entry so we can reinsert it in the correct position.
+  const removed = [];
+  for (let i = plugins.length - 1; i >= 0; i--) {
+    if (isEntry(plugins[i], '@appsent-co/react-native-watchos')) {
+      removed.push(plugins[i]);
+      plugins.splice(i, 1);
+    }
   }
 
   const entry = ['@appsent-co/react-native-watchos', { targetName }];
@@ -134,7 +138,13 @@ function patchAppJson(cwd, targetName) {
   else plugins.push(entry);
 
   fs.writeFileSync(p, JSON.stringify(json, null, 2) + '\n');
-  console.log(`› Patched ${path.relative(cwd, p)}`);
+  if (removed.length) {
+    console.log(
+      `› Replaced existing @appsent-co/react-native-watchos entry in ${path.relative(cwd, p)}`
+    );
+  } else {
+    console.log(`› Patched ${path.relative(cwd, p)}`);
+  }
 }
 
 function spawnInherit(cmd, args) {

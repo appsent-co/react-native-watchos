@@ -83,20 +83,19 @@
     "globals": "^15.14.0",
     "prettier": "^3.6.2",
     "react": "19.1.0",
-    "react-reconciler": "0.32.0",
     "release-it": "^19.0.4",
     "typescript": "^5.9.2"
   },
   "dependencies": {
     "@expo/config-plugins": "^54.0.0",
+    "react-reconciler": "0.32.0",
     "whatwg-fetch": "^3.6.20"
   },
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",
     "expo": ">=54.0.0",
     "react": "*",
-    "react-native": "*",
-    "react-reconciler": "*"
+    "react-native": "*"
   },
   "packageManager": "pnpm@10.10.0",
   "commitlint": {
