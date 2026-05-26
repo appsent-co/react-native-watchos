@@ -6,6 +6,7 @@ import { FormDemo } from './FormDemo';
 import { GaugeDemo } from './GaugeDemo';
 import { GroupDemo } from './GroupDemo';
 import { LabelDemo } from './LabelDemo';
+import { LocalImageDemo } from './LocalImageDemo';
 import { PickerDemo } from './PickerDemo';
 import { ShapesDemo } from './ShapesDemo';
 import { SheetDemo } from './SheetDemo';
@@ -29,6 +30,7 @@ export const DEMOS: readonly DemoEntry[] = [
   { name: 'Gauge', icon: 'gauge', Component: GaugeDemo },
   { name: 'Group', icon: 'square.on.square', Component: GroupDemo },
   { name: 'Label', icon: 'tag', Component: LabelDemo },
+  { name: 'LocalImage', icon: 'photo.fill', Component: LocalImageDemo },
   { name: 'Picker', icon: 'list.bullet', Component: PickerDemo },
   { name: 'Shapes', icon: 'square.on.circle', Component: ShapesDemo },
   {

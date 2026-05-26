@@ -22,4 +22,8 @@ extension Dictionary where Key == String, Value == Any {
     func int(_ key: String) -> Int? {
         (self[key] as? NSNumber)?.intValue
     }
+
+    func dict(_ key: String) -> [String: Any]? {
+        self[key] as? [String: Any]
+    }
 }
