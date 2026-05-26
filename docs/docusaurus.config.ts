@@ -57,7 +57,7 @@ const config: Config = {
       title: 'react-native-watchos',
       logo: {
         alt: 'react-native-watchos',
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         {
