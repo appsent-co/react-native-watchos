@@ -20,7 +20,7 @@ struct ContentView: View {
     // For real-device testing, pass the Mac's LAN IP:
     //   ReactNativeWatchOSHost.defaultBundleURL(host: "192.168.1.42")
     // pnpm/monorepo setups serve bundles under `/<package>/index.bundle`:
-    //   ReactNativeWatchOSHost.defaultBundleURL(entry: "my-app/index")
+    //   ReactNativeWatchOSHost.defaultBundleURL(entry: "my-app/index.watchos")
     private let bundleURL = ReactNativeWatchOSHost.defaultBundleURL()
 
     var body: some View {

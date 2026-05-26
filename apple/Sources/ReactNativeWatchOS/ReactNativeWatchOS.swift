@@ -152,8 +152,16 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         Bundle.main.url(forResource: name, withExtension: "jsbundle")
     }
 
+    /// - Parameter entry: Metro entry path (no extension). Defaults to
+    ///   `"index.watchos"` so the request becomes `/index.watchos.bundle`,
+    ///   which Metro resolves to the literal `index.watchos.{tsx,ts,jsx,js}`
+    ///   on disk. A bare `"index"` would resolve to `index.ts` (the
+    ///   iOS/Android entry from package.json `main`) — Metro applies the
+    ///   `.watchos.*` extension to in-graph `require`s, not to the entry
+    ///   path itself. Monorepo callers can override with e.g.
+    ///   `entry: "my-app/index.watchos"`.
     public static func defaultBundleURL(
-        entry: String = "index",
+        entry: String = "index.watchos",
         host: String = "127.0.0.1",
         port: Int = 8081,
         name: String = "main"

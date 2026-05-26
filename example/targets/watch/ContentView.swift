@@ -17,13 +17,18 @@ import ReactNativeWatchOS
 
 struct ContentView: View {
     // pnpm workspace: Expo serves bundles under `/<package>/index.bundle`,
-    // not `/index.bundle`. For non-monorepo apps drop the `example/` prefix
-    // (or just omit the `entry:` arg).
+    // not `/index.bundle`. The `.watchos` suffix is required because Metro's
+    // entry-point resolution treats the path literally — the `.watchos.*`
+    // extension only applies to in-graph `require`s, not the entry itself.
+    // Without it, `/example/index.bundle` resolves to `example/index.js`
+    // instead of `example/index.watchos.tsx`. For non-monorepo apps drop
+    // the `example/` prefix (or just omit the `entry:` arg — the default is
+    // already `"index.watchos"`).
     //
     // 127.0.0.1 works from the watchOS Simulator (shares the host's loopback).
     // For real-device testing, pass the Mac's LAN IP:
-    //   ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index", host: "192.168.1.42")
-    private let bundleURL = ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index")
+    //   ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index.watchos", host: "192.168.1.42")
+    private let bundleURL = ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index.watchos")
 
     var body: some View {
         // TurboModules auto-register on image load via `RCT_EXPORT_MODULE`

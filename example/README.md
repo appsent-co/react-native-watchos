@@ -13,15 +13,18 @@ teaches Metro to resolve `*.watchos.{ts,tsx,js,jsx}` for that platform query.
 1. The Watch app's `ContentView` instantiates `ReactNativeWatchOSHost`
    (from the local Swift Package at the repo root).
 2. On view appear, it calls
-   `URLSession.shared.data(from: ReactNativeWatchOSHost.metroBundleURL(entry: "example/index"))`,
+   `URLSession.shared.data(from: ReactNativeWatchOSHost.metroBundleURL(entry: "example/index.watchos"))`,
    which resolves to
-   `http://127.0.0.1:8081/example/index.bundle?platform=watchos&dev=true&minify=false`.
+   `http://127.0.0.1:8081/example/index.watchos.bundle?platform=watchos&dev=true&minify=false`.
    The `example/` prefix is needed because this repo is a pnpm workspace —
-   Expo serves bundles under `/<package>/…`. A standalone Expo app would
-   just use the default `metroBundleURL()` (no `entry:`).
-3. Metro builds [`index.watchos.ts`](index.watchos.ts) (chosen over
-   [`index.js`](index.js) because of the `platform=watchos` query) and
-   streams the bundle back.
+   Expo serves bundles under `/<package>/…`. The `.watchos` suffix is
+   required because Metro's entry-point resolution is literal; the
+   `.watchos.*` extension only applies to in-graph `require`s, not the
+   entry path. Without it, Metro would resolve `example/index` to
+   `example/index.js`. A standalone Expo app would just use the default
+   `metroBundleURL()` (no `entry:`) — the default is `"index.watchos"`.
+3. Metro builds [`index.watchos.tsx`](index.watchos.tsx) and streams the
+   bundle back.
 4. The downloaded text is passed to `RNWHermesHost.evaluate(...)`, which
    feeds it to `hermes::makeHermesRuntime()->evaluateJavaScript(...)`.
 5. The bundle calls `console.log/warn/error/info`. Each call hits a JSI
@@ -54,16 +57,16 @@ npx expo start
 Leave it running. Sanity-check the watchOS bundle resolves:
 
 ```sh
-curl -s 'http://127.0.0.1:8081/example/index.bundle?platform=watchos&dev=true&minify=false' | head -20
+curl -s 'http://127.0.0.1:8081/example/index.watchos.bundle?platform=watchos&dev=true&minify=false' | head -20
 ```
 
 You should see Metro's wrapper plus the `console.*` calls from
-`index.watchos.ts`.
+`index.watchos.tsx`.
 
 > **pnpm workspace note:** if you're following this example as a template
 > outside of a workspace, drop the `example/` prefix from both the curl
 > command above and the `entry:` argument in `ContentView.swift` — your
-> bundle will be served at `/index.bundle` instead.
+> bundle will be served at `/index.watchos.bundle` instead.
 
 ### 3. Wire the local Swift Package into Xcode (one-time)
 

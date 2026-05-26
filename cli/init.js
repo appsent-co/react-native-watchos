@@ -91,6 +91,22 @@ function isWatchTargetConfig(dir) {
 
 /** @param {string} targetDir */
 function writeContentView(targetDir) {
+  // `create-target watch` drops its own `content.swift` placeholder that
+  // declares `struct ContentView: View`. Ours does too, so leaving both in
+  // the target compiles to "Invalid redeclaration of 'ContentView'". Wipe
+  // the placeholder (root + preview/) before writing ours.
+  for (const dir of [targetDir, path.join(targetDir, 'preview')]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (name.toLowerCase() !== 'content.swift') continue;
+      const p = path.join(dir, name);
+      fs.rmSync(p);
+      console.log(
+        `› Removed ${path.relative(process.cwd(), p)} (create-target placeholder; conflicts with ContentView.swift).`
+      );
+    }
+  }
+
   const dest = path.join(targetDir, 'ContentView.swift');
   const src = path.join(TEMPLATES, 'ContentView.swift');
   fs.copyFileSync(src, dest);
