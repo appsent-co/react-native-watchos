@@ -28,25 +28,7 @@
 }
 @end
 
-@implementation RCTMethodArgument
-- (NSString *)type {
-    return @"";
-}
-@end
-
 #pragma mark - C entrypoints
-
-// Dead code on watchOS — `getArgumentTypeName` only calls this after
-// finding an `__rct_export__*` method, which our `RCT_EXPORT_METHOD`
-// doesn't emit. Defensive impl in case the guard ever drifts.
-NSString *RCTParseMethodSignature(
-    const char *input,
-    NSArray<RCTMethodArgument *> **arguments) {
-    if (arguments != NULL) {
-        *arguments = @[];
-    }
-    return nil;
-}
 
 // Schema mirrors RN's promise-rejection dict — JS side walks these
 // onto the Error instance via `Error.cause`.

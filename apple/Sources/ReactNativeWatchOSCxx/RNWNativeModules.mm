@@ -1,13 +1,14 @@
-// Dispatcher for legacy `RCT_EXPORT_MODULE` ObjC modules. Resolves a
-// JS method name to an ObjC selector via runtime introspection,
-// classifies sync/promise/void from the `NSMethodSignature`, then
-// dispatches through `ObjCTurboModule` to reuse the codegen path's
-// JSI↔ObjC conversion logic. Mirrors iOS's `RCTInteropTurboModule`.
+// Dispatcher for `RCT_EXPORT_MODULE` ObjC modules. Scans each class's
+// metaclass for `__rct_export__*` stashes, parses each via
+// `RCTParseMethodSignature`, then dispatches through `ObjCTurboModule`.
+// Mirrors iOS's `RCTInteropTurboModule`.
 
 #import "RNWNativeModules.h"
 
 #import <Foundation/Foundation.h>
 #import <React/RCTBridgeModule.h>
+#import <React/RCTLog.h>
+#import <React/RCTModuleMethod.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import "ReactNativeWatchOSCxx/RNWTurboModuleRegistry.h"
 
@@ -22,14 +23,12 @@ namespace facebook::react {
 
 namespace {
 
-// Codegen's `ObjCTurboModule::convertReturnIdToJSIValue` assumes the
-// spec pins down the ObjC return type per method. Interop path has no
-// such info — every `id`-returning method reports `@`. Override to
-// dispatch on the runtime class.
 class InteropObjCTurboModule final : public ObjCTurboModule {
    public:
     using ObjCTurboModule::ObjCTurboModule;
 
+    // Interop path has no per-method return type info — every `id`
+    // reports `@`. Dispatch on the runtime class instead.
     jsi::Value convertReturnIdToJSIValue(
         jsi::Runtime &runtime,
         const char *methodName,
@@ -40,14 +39,33 @@ class InteropObjCTurboModule final : public ObjCTurboModule {
         }
         return TurboModuleConvertUtils::convertObjCObjectToJSIValue(runtime, result);
     }
+
+    NSString *getArgumentTypeName(
+        jsi::Runtime &runtime,
+        NSString *methodName,
+        int argIndex) override {
+        NSArray<NSString *> *names = methodArgumentTypeNames_[methodName];
+        if (names == nil || argIndex < 0 || (NSUInteger)argIndex >= names.count) {
+            return nil;
+        }
+        NSString *type = names[argIndex];
+        return type.length > 0 ? type : nil;
+    }
+
+    void setMethodArgumentTypeNames(
+        NSDictionary<NSString *, NSArray<NSString *> *> *names) {
+        methodArgumentTypeNames_ = [names copy];
+    }
+
+   private:
+    NSDictionary<NSString *, NSArray<NSString *> *> *methodArgumentTypeNames_ = nil;
 };
 
 struct MethodDescriptor {
     SEL selector;
     TurboModuleMethodValueKind kind;
-    // JS-side arg count. Differs from the selector's colon count when
-    // the method ends in `(resolve:reject:)` — JS passes neither block.
     NSUInteger jsArgCount;
+    NSArray<NSString *> *argTypeNames;
 };
 
 struct ModuleEntry {
@@ -86,6 +104,18 @@ class InteropRegistry {
         };
         entry.turboModule = std::make_shared<InteropObjCTurboModule>(params);
         entry.methods = buildMethodMap([instance class]);
+
+        NSMutableDictionary<NSString *, NSArray<NSString *> *> *typeNamesDict =
+            [NSMutableDictionary dictionaryWithCapacity:entry.methods.size()];
+        for (const auto &kv : entry.methods) {
+            if (kv.second.argTypeNames == nil) {
+                continue;
+            }
+            NSString *jsKey = [NSString stringWithUTF8String:kv.first.c_str()];
+            typeNamesDict[jsKey] = kv.second.argTypeNames;
+        }
+        entry.turboModule->setMethodArgumentTypeNames(typeNamesDict);
+
         auto [inserted, ok] = entries_.emplace(key, std::move(entry));
         return &inserted->second;
     }
@@ -93,105 +123,89 @@ class InteropRegistry {
    private:
     static std::unordered_map<std::string, MethodDescriptor> buildMethodMap(Class cls) {
         std::unordered_map<std::string, MethodDescriptor> map;
-        // Walk to NSObject so subclasses inherit parent selectors.
+        // Walk to NSObject so subclasses inherit parent exports.
         for (Class c = cls; c && c != [NSObject class]; c = class_getSuperclass(c)) {
+            Class meta = object_getClass(c);
             unsigned int count = 0;
-            Method *methods = class_copyMethodList(c, &count);
+            Method *methods = class_copyMethodList(meta, &count);
             if (methods == nullptr) {
                 continue;
             }
             for (unsigned int i = 0; i < count; i++) {
-                SEL sel = method_getName(methods[i]);
-                const char *selName = sel_getName(sel);
-                if (selName == nullptr) {
+                SEL exportSel = method_getName(methods[i]);
+                const char *exportName = sel_getName(exportSel);
+                if (exportName == nullptr ||
+                    strncmp(exportName, "__rct_export__", 14) != 0) {
                     continue;
                 }
-                std::string fullSelector(selName);
-                std::string jsName = fullSelector;
-                size_t colon = jsName.find(':');
-                if (colon != std::string::npos) {
-                    jsName = jsName.substr(0, colon);
+                using GetInfoFn = const RCTMethodInfo *(*)(id, SEL);
+                GetInfoFn getInfo = (GetInfoFn)method_getImplementation(methods[i]);
+                const RCTMethodInfo *info = getInfo(c, exportSel);
+                if (info == nullptr || info->objcName == nullptr) {
+                    continue;
                 }
-                if (jsName.empty() ||
-                    jsName[0] == '_' ||
-                    jsName == "init" ||
-                    jsName == "dealloc" ||
-                    jsName == "self" ||
-                    jsName == "class" ||
-                    jsName == "description" ||
-                    jsName == "debugDescription" ||
-                    jsName == "hash" ||
-                    jsName == "retain" ||
-                    jsName == "release" ||
-                    jsName == "autorelease" ||
-                    jsName == "respondsToSelector" ||
-                    jsName == "isKindOfClass" ||
-                    jsName == "isMemberOfClass" ||
-                    jsName == "conformsToProtocol" ||
-                    jsName == "performSelector" ||
-                    jsName == "isProxy" ||
-                    jsName == "setBridge" ||
-                    jsName == "bridge" ||
-                    jsName == "moduleName" ||
-                    jsName == "requiresMainQueueSetup" ||
-                    jsName == "methodQueue" ||
-                    jsName == "constantsToExport") {
+
+                NSArray<RCTMethodArgument *> *parsedArgs = nil;
+                NSString *selectorStr = RCTParseMethodSignature(info->objcName, &parsedArgs);
+                if (selectorStr.length == 0) {
+                    continue;
+                }
+                SEL selector = NSSelectorFromString(selectorStr);
+
+                std::string jsName;
+                if (info->jsName != nullptr && info->jsName[0] != '\0') {
+                    jsName = info->jsName;
+                } else {
+                    std::string sel([selectorStr UTF8String]);
+                    size_t colon = sel.find(':');
+                    jsName = (colon == std::string::npos) ? sel : sel.substr(0, colon);
+                }
+                if (jsName.empty()) {
                     continue;
                 }
                 // First wins — subclass shadows parent on same JS name.
                 if (map.find(jsName) != map.end()) {
                     continue;
                 }
-                NSMethodSignature *sig = [c instanceMethodSignatureForSelector:sel];
+
+                NSMethodSignature *sig = [c instanceMethodSignatureForSelector:selector];
                 if (sig == nil) {
+                    RCTLogWarn(
+                        @"[RNWNativeModules] %@: __rct_export__ references "
+                        @"unimplemented selector %@; skipping.",
+                        NSStringFromClass(c), selectorStr);
                     continue;
                 }
+
+                NSUInteger argCount = parsedArgs.count;
+                TurboModuleMethodValueKind kind;
+                if (info->isSync) {
+                    const char *ret = sig.methodReturnType;
+                    kind = (ret != nullptr && ret[0] == 'v') ? VoidKind : ObjectKind;
+                } else if (argCount >= 2 &&
+                           [parsedArgs[argCount - 2].type isEqualToString:@"RCTPromiseResolveBlock"] &&
+                           [parsedArgs[argCount - 1].type isEqualToString:@"RCTPromiseRejectBlock"]) {
+                    kind = PromiseKind;
+                } else {
+                    kind = VoidKind;
+                }
+
+                NSMutableArray<NSString *> *typeNames =
+                    [NSMutableArray arrayWithCapacity:argCount];
+                for (RCTMethodArgument *arg in parsedArgs) {
+                    [typeNames addObject:arg.type ?: @""];
+                }
+
                 MethodDescriptor desc;
-                desc.selector = sel;
-                desc.kind = classifyMethod(sig);
-                desc.jsArgCount = jsArgCountForSignature(sig, desc.kind);
+                desc.selector = selector;
+                desc.kind = kind;
+                desc.jsArgCount = argCount - (kind == PromiseKind ? 2 : 0);
+                desc.argTypeNames = [typeNames copy];
                 map.emplace(std::move(jsName), desc);
             }
             free(methods);
         }
         return map;
-    }
-
-    // Only Void / Promise / Object are reachable — `RCT_EXPORT_*` macros
-    // only return `void` or `id`, and `ObjectKind` is rerouted through
-    // `InteropObjCTurboModule`'s runtime-type-dispatching converter.
-    static TurboModuleMethodValueKind classifyMethod(NSMethodSignature *sig) {
-        NSUInteger argCount = sig.numberOfArguments;
-        // Args 0/1 are self/_cmd; user args start at 2.
-        if (argCount >= 4) {
-            const char *penultimate = [sig getArgumentTypeAtIndex:argCount - 2];
-            const char *last = [sig getArgumentTypeAtIndex:argCount - 1];
-            if (isBlockEncoding(penultimate) && isBlockEncoding(last)) {
-                return PromiseKind;
-            }
-        }
-        const char *ret = sig.methodReturnType;
-        if (ret == nullptr || ret[0] == 'v') {
-            return VoidKind;
-        }
-        return ObjectKind;
-    }
-
-    static bool isBlockEncoding(const char *enc) {
-        if (enc == nullptr) {
-            return false;
-        }
-        return std::string(enc) == "@?";
-    }
-
-    static NSUInteger jsArgCountForSignature(NSMethodSignature *sig,
-                                              TurboModuleMethodValueKind kind) {
-        NSUInteger total = sig.numberOfArguments;
-        NSUInteger userArgs = total >= 2 ? total - 2 : 0;
-        if (kind == PromiseKind && userArgs >= 2) {
-            return userArgs - 2;  // strip resolve + reject
-        }
-        return userArgs;
     }
 
     std::mutex mutex_;

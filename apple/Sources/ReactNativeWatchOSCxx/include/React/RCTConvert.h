@@ -1,8 +1,7 @@
-// watchOS stub of `<React/RCTConvert.h>`. Upstream uses this for
-// JS→ObjC arg conversion (UIColor, NSURL, etc.) but that branch is
-// dead code here: `getArgumentTypeName` only fires for `__rct_export__*`
-// methods, which our `RCT_EXPORT_METHOD` doesn't emit. We just need
-// the class to exist so the upstream `.mm` links.
+// watchOS stub of `<React/RCTConvert.h>`. Upstream provides typed
+// JS→ObjC converters (`+NSString:`, `+UIColor:`, …). We ship the class
+// as a no-op — the dispatcher's `respondsToSelector:` check fails for
+// every type and falls through to the generic JSI→ObjC converter.
 
 #pragma once
 

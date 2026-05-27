@@ -1,8 +1,7 @@
-// watchOS stub of `<React/RCTModuleMethod.h>`. Dead-code parser fodder
-// for upstream `RCTTurboModule.mm` — our `RCT_EXPORT_METHOD` doesn't
-// emit the `__rct_export__*` sibling that `getArgumentTypeName` looks
-// for, so the loop body never runs. `RCTParseMethodSignature` is a
-// no-op that returns nil.
+// Pieces of upstream `<React/RCTModuleMethod.h>` that the interop
+// dispatcher reads: the `RCTMethodInfo` stash struct, `RCTMethodArgument`
+// (trimmed to `.type` — dispatch never reads nullability/unused), and
+// `RCTParseMethodSignature`. Impl in `RCTModuleMethod.mm`.
 
 #pragma once
 
@@ -19,6 +18,8 @@ typedef struct RCTMethodInfo {
 @interface RCTMethodArgument : NSObject
 
 @property (nonatomic, copy, readonly) NSString *type;
+
+- (instancetype)initWithType:(NSString *)type;
 
 @end
 

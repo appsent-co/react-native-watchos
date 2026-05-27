@@ -4,12 +4,7 @@
 #pragma once
 
 #import <Foundation/Foundation.h>
-
-#ifdef __cplusplus
-#define RCT_EXTERN extern "C" __attribute__((visibility("default")))
-#else
-#define RCT_EXTERN extern __attribute__((visibility("default")))
-#endif
+#import <React/RCTDefines.h>
 
 #ifndef RCTLog
 #define RCTLog(...) NSLog(__VA_ARGS__)

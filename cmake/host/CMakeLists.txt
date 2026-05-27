@@ -120,6 +120,10 @@ add_library(RNWHost STATIC
     "${SOURCES_DIR}/RNWRCTEventEmitter.mm"
     "${SOURCES_DIR}/RCTBridgeCompat.mm"
     "${SOURCES_DIR}/RCTCompatStubs.mm"
+    # Local copy of upstream `React/Base/RCTParserUtils.{h,m}` — see
+    # `RCTParserUtils.m` for why we can't compile straight from node_modules.
+    "${SOURCES_DIR}/RCTParserUtils.m"
+    "${SOURCES_DIR}/RCTModuleMethod.mm"
     "${SOURCES_DIR}/RNWNativeModules.mm"
 )
 
