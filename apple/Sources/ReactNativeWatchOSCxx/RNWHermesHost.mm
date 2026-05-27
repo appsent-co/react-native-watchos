@@ -1,11 +1,21 @@
 #import "ReactNativeWatchOSCxx/RNWHermesHost.h"
 #import "ReactNativeWatchOSCxx/RNWTurboModuleRegistry.h"
 #import "ReactNativeWatchOSCxx/RNWTurboModuleRegistry+Cxx.h"
+#import <React/RCTBridge.h>
+#import <React/RCTBridge+Private.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import "RNWCallInvoker.h"
+#import "RNWNativeModules.h"
 #import "RNWUIManager.h"
 #import "RNWWebSocket.h"
 #import "RNWXHR.h"
+
+// Private SPI on `RCTBridge`, implemented in `RCTBridgeCompat.mm`.
+@interface RCTBridge (RNWInternal)
++ (void)_rnwSetCurrentBridge:(nullable RCTBridge *)bridge;
+- (void)_rnwSetRuntime:(nullable void *)runtime
+         jsCallInvoker:(std::shared_ptr<facebook::react::CallInvoker>)invoker;
+@end
 
 #import <hermes/hermes.h>
 #import <jsi/jsi.h>
@@ -78,6 +88,10 @@ void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
                     _jsQueueRef);
             _nativeMethodCallInvoker =
                 std::make_shared<facebook::react::RNWSerialNativeMethodCallInvoker>();
+            // Bridge MUST be populated before `installTurboModules` — bridge-style
+            // modules read `_bridge.runtime` / `_bridge.jsCallInvoker` from
+            // their `-install` body on the first JS access.
+            [self installCompatBridge];
             [self installConsole];
             [self installTimers];
             [self installUIManager];
@@ -85,12 +99,19 @@ void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
             rnwInstallWebSocket(*_runtime, _jsQueueRef);
             rnwInstallXHR(*_runtime, _jsQueueRef);
             [self installTurboModules];
+            [self installNativeModules];
         });
     }
     return self;
 }
 
 - (void)dealloc {
+    // Zero the bridge's runtime so any surviving module can't dereference
+    // a dangling `jsi::Runtime *`. The singleton itself stays alive — a
+    // new host refills the slot.
+    [RCTBridge.currentBridge _rnwSetRuntime:NULL
+                              jsCallInvoker:nullptr];
+
     // Hermes objects must be destroyed on the JS queue.
     dispatch_queue_t queue = _jsQueue;
     if (queue != nil) {
@@ -108,6 +129,17 @@ void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
             runtime.reset();
         });
     }
+}
+
+- (void)installCompatBridge {
+    // Process singleton — a re-init overwrites the previous host's pointers.
+    RCTBridge *bridge = RCTBridge.currentBridge ?: [[RCTBridge alloc] init];
+    [bridge _rnwSetRuntime:_runtime.get() jsCallInvoker:_jsCallInvoker];
+    [RCTBridge _rnwSetCurrentBridge:bridge];
+}
+
+- (void)installNativeModules {
+    rnwInstallNativeModulesProxy(*_runtime, _jsCallInvoker, _nativeMethodCallInvoker);
 }
 
 - (void)installTurboModules {

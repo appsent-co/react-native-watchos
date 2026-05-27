@@ -1,0 +1,13 @@
+diff --git a/op-sqlite.podspec b/op-sqlite.podspec
+index 8452cc2b66870d5d538b1dfea8a3a238fb7437b7..a345cda2b611f21e75e59133e28350f245adde8d 100644
+--- a/op-sqlite.podspec
++++ b/op-sqlite.podspec
+@@ -103,7 +103,7 @@ Pod::Spec.new do |s|
+   s.license      = package["license"]
+   s.authors      = package["author"]
+ 
+-  s.platforms    = { :ios => min_ios_version_supported, :tvos => "13.0", :osx => "10.15", :visionos => "1.0" }
++  s.platforms    = { :ios => min_ios_version_supported, :tvos => "13.0", :osx => "10.15", :visionos => "1.0", :watchos => "9.0" }
+   s.source       = { :git => "https://github.com/op-engineering/op-sqlite.git", :tag => "#{s.version}" }
+ 
+   log_message.call("[OP-SQLITE] Configuration found at #{package_json_path}")

@@ -30,6 +30,38 @@ const config: Config = {
     locales: ['en'],
   },
 
+  plugins: [
+    [
+      'docusaurus-plugin-llms',
+      {
+        generateLLMsTxt: true,
+        generateLLMsFullTxt: true,
+        docsDir: 'docs',
+        title: 'react-native-watchos',
+        description:
+          'Build watchOS apps with React Native, rendered as native SwiftUI.',
+        excludeImports: true,
+        removeDuplicateHeadings: true,
+        includeOrder: [
+          'intro.md',
+          'getting-started/*',
+          'renderer/*',
+          'navigation/*',
+          'watch-connectivity.md',
+          'native/*',
+          'dx/*',
+          'expo-plugin.md',
+          'architecture.md',
+          'contributing.md',
+        ],
+        includeUnmatchedLast: true,
+        pathTransformation: {
+          ignorePaths: ['docs'],
+        },
+      },
+    ],
+  ],
+
   presets: [
     [
       'classic',

@@ -151,9 +151,15 @@ function install(): void {
 function connect(dev: DevServerInfo): void {
   const scheme = dev.scheme === 'https' ? 'wss' : 'ws';
   const wsURL = `${scheme}://${dev.host}:${dev.port}/hot`;
+  // `bundleEntry` MUST keep its `.bundle` extension — Metro strips the
+  // trailing extension before resolving. Without it, `index.watchos`
+  // loses `.watchos` and resolves to the iOS entry, the graph ID
+  // diverges from the live bundle's, and HmrServer replies with
+  // `GraphNotFoundError` (silent breakage).
   const entryURL =
     `${dev.scheme}://${dev.host}:${dev.port}/hot?` +
-    `bundleEntry=${encodeURIComponent(dev.entry)}&platform=watchos`;
+    `bundleEntry=${encodeURIComponent(dev.entry + '.bundle')}` +
+    `&platform=watchos`;
 
   const WS = g.WebSocket as new (url: string) => {
     onopen: ((e: unknown) => void) | null;

@@ -1,6 +1,7 @@
 #import "ReactNativeWatchOSCxx/RNWTurboModuleRegistry.h"
 #import "ReactNativeWatchOSCxx/RNWTurboModuleRegistry+Cxx.h"
 #import <ReactCommon/RCTTurboModule.h>
+#import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
 
 #include <ReactCommon/CallInvoker.h>
@@ -12,12 +13,14 @@
 
 @implementation RNWTurboModuleRegistry {
     std::unordered_map<std::string, RNWTurboModuleCxxFactory> _cxxFactories;
-    // Cached so one module name → one instance per host lifetime
-    // (TurboModuleBinding caches the JS side but not the C++ side).
+    // One C++ TurboModule per name (TurboModuleBinding caches the JS side only).
     std::unordered_map<std::string,
                        std::shared_ptr<facebook::react::TurboModule>>
         _instances;
     NSMutableDictionary<NSString *, id _Nonnull (^)(void)> *_objcFactories;
+    // Shared with `RCTBridge -moduleForName:` so each module is built
+    // at most once per process.
+    NSMutableDictionary<NSString *, id> *_objcInstances;
 }
 
 + (instancetype)shared {
@@ -32,6 +35,7 @@
 - (instancetype)init {
     if ((self = [super init])) {
         _objcFactories = [NSMutableDictionary dictionary];
+        _objcInstances = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -44,6 +48,33 @@
         return;
     }
     _objcFactories[name] = [factory copy];
+}
+
+- (id)objcInstanceForName:(NSString *)name {
+    if (name == nil) {
+        return nil;
+    }
+    @synchronized (self) {
+        id cached = _objcInstances[name];
+        if (cached != nil) {
+            return cached;
+        }
+        id _Nonnull (^factory)(void) = _objcFactories[name];
+        if (factory == nil) {
+            return nil;
+        }
+        id instance = factory();
+        if (instance == nil) {
+            return nil;
+        }
+        // Cache before -setBridge: so a recursive lookup from inside
+        // the setter doesn't re-run the factory.
+        _objcInstances[name] = instance;
+        if ([instance respondsToSelector:@selector(setBridge:)]) {
+            [instance setBridge:RCTBridge.currentBridge];
+        }
+        return instance;
+    }
 }
 
 #pragma mark - C++ registration
@@ -82,11 +113,7 @@
         return instance;
     }
 
-    id _Nonnull (^objcFactory)(void) = _objcFactories[name];
-    if (objcFactory == nil) {
-        return nullptr;
-    }
-    id instance = objcFactory();
+    id instance = [self objcInstanceForName:name];
     if (instance == nil) {
         return nullptr;
     }

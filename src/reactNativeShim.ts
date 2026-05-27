@@ -1,26 +1,82 @@
-// Stand-in for the `react-native` package on the watchos platform.
-//
-// `withWatchosMetro` aliases `react-native` → this file when the bundle's
-// platform is `watchos`. Without that redirect, Metro statically walks
-// `react-native/index.js` (every `require()` inside the lazy getters is
-// part of the dep graph) and ends up resolving `setUpReactDevTools.js` →
-// `ReactDevToolsSettingsManager`, a file RN only ships as `.android.js` /
-// `.ios.js`. No `.watchos.js` variant means the resolver fails to bundle.
-//
-// The watch runtime has no batched bridge, no UIManager, no DevTools — it
-// only has Hermes + `globalThis.__turboModuleProxy` installed by
-// `RNWHermesHost.installTurboModules`. So this shim deliberately exposes
-// only `TurboModuleRegistry` (and the `TurboModule` brand interface).
-// Other RN APIs would crash at runtime here.
+// Stand-in for the `react-native` package on watchos. Aliased by
+// `withWatchosMetro` so Metro doesn't walk RN's `.ios.js`-only DevTools
+// graph. Wires `__turboModuleProxy` + `__rnwInvokeNativeModuleMethod`
+// (both installed by `RNWHermesHost`) into the standard
+// `TurboModuleRegistry` / `NativeModules` surface.
 
 export interface TurboModule {}
 
 type TurboModuleProxy = <T extends TurboModule>(name: string) => T | null;
+type InvokeFn = (
+  moduleName: string,
+  methodName: string,
+  ...args: unknown[]
+) => unknown;
+type ConstantsFn = (moduleName: string) => Record<string, unknown> | null;
+
+interface RNWGlobals {
+  __turboModuleProxy?: TurboModuleProxy;
+  __rnwInvokeNativeModuleMethod?: InvokeFn;
+  __rnwGetNativeModuleConstants?: ConstantsFn;
+}
+
+const moduleProxyCache = new Map<string, object>();
+
+function buildInteropModule<T>(name: string): T {
+  const getConstants = (globalThis as RNWGlobals)
+    .__rnwGetNativeModuleConstants;
+  const invoke = (globalThis as RNWGlobals).__rnwInvokeNativeModuleMethod;
+  if (invoke == null) {
+    throw new Error(
+      `NativeModules.${name}: native bridge not installed yet. ` +
+        `RNWHermesHost must finish initializing before module access.`
+    );
+  }
+  const constants = getConstants ? getConstants(name) : null;
+  const base: Record<string, unknown> = { ...(constants ?? {}) };
+  const proxy = new Proxy(base, {
+    get(target, prop) {
+      if (typeof prop !== 'string') {
+        return Reflect.get(target, prop);
+      }
+      if (prop in target) {
+        return target[prop];
+      }
+      // JS protocol slots — never dispatch these to native.
+      if (prop === 'then' || prop === 'toString' || prop === 'valueOf') {
+        return undefined;
+      }
+      const fn = (...args: unknown[]) => invoke(name, prop, ...args);
+      // Cache so libraries that `===` their method references keep working.
+      target[prop] = fn;
+      return fn;
+    },
+  });
+  return proxy as T;
+}
+
+function getInteropModule<T>(name: string): T {
+  const cached = moduleProxyCache.get(name);
+  if (cached !== undefined) {
+    return cached as T;
+  }
+  const built = buildInteropModule<T>(name);
+  moduleProxyCache.set(name, built as object);
+  return built;
+}
 
 function requireModule<T extends TurboModule>(name: string): T | null {
-  const proxy = (globalThis as { __turboModuleProxy?: TurboModuleProxy })
-    .__turboModuleProxy;
-  return proxy ? proxy<T>(name) : null;
+  // Codegen-spec path first; falls back to legacy `RCT_EXPORT_MODULE` interop.
+  const proxy = (globalThis as RNWGlobals).__turboModuleProxy;
+  const fromTM = proxy ? proxy<T>(name) : null;
+  if (fromTM != null) {
+    return fromTM;
+  }
+  const invoke = (globalThis as RNWGlobals).__rnwInvokeNativeModuleMethod;
+  if (invoke == null) {
+    return null;
+  }
+  return getInteropModule<T>(name);
 }
 
 export const TurboModuleRegistry = {
@@ -39,40 +95,33 @@ export const TurboModuleRegistry = {
   },
 };
 
-/** Marker the JS facade for watch-only modules (e.g. WatchConnectivity)
- *  uses to detect which platform's event-delivery path to install.
- *  Standard `react-native` doesn't define this; the shim does. */
+/** Legacy `NativeModules` API for libraries that still do
+ *  `NativeModules.X.someMethod()` (op-sqlite, mmkv-pre-3.x, etc.). */
+export const NativeModules: Record<string, unknown> = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      if (typeof prop !== 'string') {
+        return undefined;
+      }
+      return getInteropModule(prop);
+    },
+  }
+);
+
+/** Marker for watch-only JS facades (e.g. WatchConnectivity) to detect
+ *  the platform without a `Platform.OS` comparison. */
 export const IS_WATCHOS = true;
 
-/** Stub for `Platform` so consumer code that does
- *  `import { Platform } from 'react-native'` on watchOS doesn't crash
- *  at the import site. Anything reading `Platform.OS` gets `'watchos'`. */
 export const Platform = {
   OS: 'watchos' as const,
   select: <T>(specifics: { default?: T; watchos?: T }): T | undefined =>
     specifics.watchos ?? specifics.default,
 };
 
-/**
- * Functional `NativeEventEmitter` stub. Mirrors the iOS RN API so the
- * same JS facade works on both platforms unchanged:
- *
- *   const emitter = new NativeEventEmitter(NativeMyModule);
- *   const sub = emitter.addListener('foo', payload => { ... });
- *   sub.remove();
- *
- * Under the hood on watchOS:
- *   - `addListener(name, fn)` registers `fn` in the shared name-keyed
- *     listener registry (`eventRegistry`).
- *   - `sendEventWithName:body:` on the native side posts a notification
- *     carrying the event name; the Swift host forwards into
- *     `__RNW_EVENTS.dispatchEvent(name, payload)`, which fans out to
- *     every registered listener for that name.
- *   - No native handshake — the native module never learns about
- *     individual listeners. `addListener` / `removeListeners` on the
- *     native side are called for parity with RN's contract but are
- *     no-ops in the watch stub.
- */
+/** `NativeEventEmitter` stub. Listeners go into the shared
+ *  `eventRegistry`; native posts notifications that the Swift host
+ *  forwards into `__RNW_EVENTS.dispatchEvent(name, payload)`. */
 type ShimListener = (payload?: unknown) => void;
 
 interface ShimNativeModule {
@@ -91,14 +140,11 @@ export class NativeEventEmitter {
     eventName: string,
     listener: ShimListener
   ): { remove: () => void } {
-    // Lazy-require to break the circular dep: eventRegistry imports
-    // the JS runtime globals installed by RNWHermesHost, and pulling
-    // it eagerly would crash if the shim is loaded before the host.
+    // Lazy-require: eventRegistry reads globals installed by RNWHermesHost,
+    // so eager import crashes when the shim loads before the host.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { registerEventListener, installEventBridge } =
       require('./eventRegistry') as typeof import('./eventRegistry');
-    // Make sure `__RNW_EVENTS.dispatchEvent` is installed even when the
-    // consumer imports this shim without also importing the renderer.
     installEventBridge();
 
     const dispose = registerEventListener(eventName, listener);

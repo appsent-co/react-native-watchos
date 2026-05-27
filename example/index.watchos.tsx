@@ -1,19 +1,18 @@
-// Watch-specific entry. Metro picks this up over `index.js` whenever the
-// bundle request carries `?platform=watchos`, because metro.config.js wraps
-// the default config with `withWatchosMetro` from
-// `@appsent-co/react-native-watchos/metro-config`.
+// Watch-specific entry, picked up by Metro for `?platform=watchos`.
 
-// MUST be the first import — it sets up React Refresh hooks BEFORE React
-// itself loads, and opens the HMR WebSocket so saves on the host trigger
-// Fast Refresh on the watch. No-op in production bundles.
+// MUST be first — installs React Refresh hooks before React loads and
+// opens the HMR WebSocket. No-op in production bundles.
 import '@appsent-co/react-native-watchos/dev-support';
 
-import { render } from '@appsent-co/react-native-watchos/renderer';
+import { render, VStack, Text } from '@appsent-co/react-native-watchos/renderer';
 
-import App from './App';
+// import App from './App';
+function App() {
+  return (
+    <VStack>
+      <Text>Hello from watchOS</Text>
+    </VStack>
+  );
+}
 
-// App lives in its own module so it's a Fast Refresh boundary (a module is
-// a boundary when all its top-level exports are React components). Editing
-// this entry triggers a full reload via `__RNW_RELOAD`; editing App.tsx
-// applies in-place.
 render(<App />);

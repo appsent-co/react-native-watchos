@@ -10,11 +10,12 @@
     "android": "expo run:android"
   },
   "dependencies": {
+    "@appsent-co/react-native-watchos": "workspace:*",
     "@bacons/apple-targets": "^4.0.7",
+    "@op-engineering/op-sqlite": "^16.1.1",
     "expo": "~54.0.33",
     "react": "19.1.0",
     "react-native": "0.81.5",
-    "@appsent-co/react-native-watchos": "workspace:*",
     "react-reconciler": "0.32.0",
     "react-refresh": "0.14.2"
   },

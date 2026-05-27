@@ -1,7 +1,15 @@
-// Stub of `<React/RCTCxxConvert.h>` for watchOS. Codegen `#import`s this
-// in every `Native<Foo>Spec.h`; the `RCTCxxConvert` ObjC class it
-// declares is only referenced by specs with struct args (it's the
-// codegen-extensible registry of JS-object → C++-struct converters).
-// v1 doesn't support struct args, so an empty header is sufficient.
+// watchOS stub of `<React/RCTCxxConvert.h>`. Upstream registers
+// per-arg JS→C++-struct converters here; we never call the registration
+// path, so `hasMethodArgConversionSelector(...)` always returns NO and
+// the branch is dead. Class just has to exist for linking.
 
 #pragma once
+
+#import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+@interface RCTCxxConvert : NSObject
+@end
+
+NS_ASSUME_NONNULL_END

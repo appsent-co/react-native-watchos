@@ -10,6 +10,7 @@ import { LocalImageDemo } from './LocalImageDemo';
 import { PickerDemo } from './PickerDemo';
 import { ShapesDemo } from './ShapesDemo';
 import { SheetDemo } from './SheetDemo';
+import { SQLiteDemo } from './SQLiteDemo';
 import { StepperDemo } from './StepperDemo';
 import { TextInputDemo } from './TextInputDemo';
 
@@ -38,6 +39,7 @@ export const DEMOS: readonly DemoEntry[] = [
     icon: 'rectangle.bottomthird.inset.filled',
     Component: SheetDemo,
   },
+  { name: 'SQLite', icon: 'cylinder.split.1x2', Component: SQLiteDemo },
   { name: 'Stepper', icon: 'plusminus.circle', Component: StepperDemo },
   {
     name: 'TextInput',

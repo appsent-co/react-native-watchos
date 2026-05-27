@@ -111,13 +111,16 @@ add_library(RNWHost STATIC
     "${SOURCES_DIR}/RNWWebSocket.mm"
     "${SOURCES_DIR}/RNWXHR.mm"
     "${SOURCES_DIR}/RNWTurboModuleRegistry.mm"
-    "${SOURCES_DIR}/RNWTurboModule.mm"
-    # Watch fork of `<React/RCTEventEmitter.h>`. Compiled only here (not
-    # via the pod) so the iOS slice picks up the real RCTEventEmitter
-    # from React-Core with no symbol clash. The header lives under
-    # `include/React/RCTEventEmitter.h` and is installed into the
-    # xcframework Headers/ root for `<React/...>`-style imports.
+    # Compiled verbatim from node_modules; dead-code branches are
+    # satisfied by stub headers + `RCTCompatStubs.mm`.
+    "${RN_COMMON_DIR}/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm"
+    # Watch fork of `<React/RCTEventEmitter.h>`. Compiled here (not
+    # via the pod) so the iOS slice picks up React-Core's version
+    # without symbol clash.
     "${SOURCES_DIR}/RNWRCTEventEmitter.mm"
+    "${SOURCES_DIR}/RCTBridgeCompat.mm"
+    "${SOURCES_DIR}/RCTCompatStubs.mm"
+    "${SOURCES_DIR}/RNWNativeModules.mm"
 )
 
 target_include_directories(RNWHost PUBLIC
@@ -127,15 +130,8 @@ target_include_directories(RNWHost PUBLIC
     "${RN_COMMON_DIR}"
     "${RN_COMMON_DIR}/callinvoker"
     "${RN_COMMON_DIR}/react/nativemodule/core"
-    # `<reactperflogger/...>` is pulled in by TurboModulePerfLogger.h
-    # (consumed by our RNWTurboModule.mm fork). Not installed under a
-    # flat tree — point directly at the source dir.
+    "${RN_COMMON_DIR}/react/nativemodule/core/platform/ios"
     "${RN_COMMON_DIR}/reactperflogger"
-    # `<glog/...>` is pulled in by the TurboModule core's JSI↔ObjC
-    # conversion logger. Three dirs in priority order: the
-    # `glog_public_headers` wrapper that third-party CMake builds
-    # (which strips internal headers), then the build dir for the
-    # generated `glog/export.h`, then the source dir as a fallback.
     "${THIRD_PARTY_BUILD}/glog_public_headers"
     "${THIRD_PARTY_BUILD}/_deps/glog-build"
     "${THIRD_PARTY_BUILD}/_deps/glog-src/src"
@@ -187,26 +183,31 @@ install(TARGETS RNWHost
     ARCHIVE DESTINATION lib
 )
 
-# Install our watchOS-safe forks of the upstream RN ObjC TurboModule
-# headers. These live at `<install>/include/React/RCTBridgeModule.h` and
-# `<install>/include/ReactCommon/RCTTurboModule.h` so they ship in the
-# xcframework's Headers/ root — that way a maintainer's
-# `#import <React/RCTBridgeModule.h>` (or `<ReactCommon/RCTTurboModule.h>`)
-# resolves to our fork on watchOS and to RN's pod on iOS.
+# Forked + stub headers ship at the xcframework's Headers/ root so
+# `#import <React/...>` resolves to our fork on watchOS and to RN's pod
+# on iOS.
 install(DIRECTORY "${SOURCES_DIR}/include/React"
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
 )
-install(DIRECTORY "${SOURCES_DIR}/include/ReactCommon"
+install(FILES "${RN_COMMON_DIR}/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.h"
+    DESTINATION include/ReactCommon
+)
+install(DIRECTORY "${SOURCES_DIR}/include/cxxreact"
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
 )
-# Stub headers that `@react-native/codegen`-emitted `Native<Foo>Spec.h`
-# unconditionally `#import`s. See the header bodies for why empty stubs
-# suffice for v1.
-install(DIRECTORY "${SOURCES_DIR}/include/RCTRequired"
-    DESTINATION include
-    FILES_MATCHING PATTERN "*.h"
+# `RCTRequired.h` + `RCTTypedModuleConstants.h` are pulled verbatim from
+# the workspace's pinned RN — both are header-only and their `.mm` impls
+# aren't reachable on watchOS (specs never conform to a real protocol).
+# `RCTConvertHelpers.h` stays as our own stub because upstream's pulls
+# `<FBLazyVector/FBLazyVector.h>` which we don't ship.
+set(RN_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../node_modules/react-native/Libraries")
+install(FILES "${RN_LIB_DIR}/Required/RCTRequired.h"
+    DESTINATION include/RCTRequired
+)
+install(FILES "${RN_LIB_DIR}/TypeSafety/RCTTypedModuleConstants.h"
+    DESTINATION include/RCTTypeSafety
 )
 install(DIRECTORY "${SOURCES_DIR}/include/RCTTypeSafety"
     DESTINATION include
