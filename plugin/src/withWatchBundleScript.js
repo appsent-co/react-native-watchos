@@ -158,7 +158,7 @@ const withWatchBundleScript = (
         //
         // `require.resolve` handles pnpm/yarn-workspace hoisting — RN may
         // be in node_modules/ or hoisted to the workspace root.
-        'HERMESC_BIN="$("$NODE_BINARY" --print "require(\'path\').join(require(\'path\').dirname(require.resolve(\'react-native/package.json\')), \'sdks/hermesc/osx-bin/hermesc\')")"',
+        "HERMESC_BIN=\"$(\"$NODE_BINARY\" --print \"require('path').join(require('path').dirname(require.resolve('react-native/package.json')), 'sdks/hermesc/osx-bin/hermesc')\")\"",
         'if [ ! -x "$HERMESC_BIN" ]; then',
         '  echo "error: hermesc not found at $HERMESC_BIN" >&2',
         '  exit 1',
