@@ -29,6 +29,8 @@
     "metro-config.d.ts",
     "react-native.config.js",
     "RNWatchConnectivity.podspec",
+    "ReactNativeWatchOSCxx.podspec",
+    "react-native-watchos.podspec",
     "cli",
     "plugin",
     "src",
@@ -91,6 +93,11 @@
     "react-reconciler": "0.32.0",
     "whatwg-fetch": "^3.6.20"
   },
+  "sideEffects": [
+    "src/polyfills.ts",
+    "src/setupConsole.ts",
+    "src/setupSelfGlobal.ts"
+  ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",
     "expo": ">=54.0.0",

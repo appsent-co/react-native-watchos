@@ -3,10 +3,13 @@ require 'open3'
 require 'pathname'
 require 'cocoapods-core'
 
-# Scope RN's `install_modules_dependencies` to non-watchOS platforms.
-# RN's injected deps (ReactCodegen, React-RCTFabric) don't declare
-# `:watchos`, so a universal `spec.dependency` aborts `pod install`
-# the moment a watchOS-targeted pod hits the resolver.
+# Scope RN's `install_modules_dependencies` to non-watchOS platforms and
+# route the watchOS slice to our `ReactNativeWatchOSCxx` pod instead. RN's
+# injected deps (React-Core, React-RCTFabric, ReactCodegen, …) don't
+# declare `:watchos`, so a universal `spec.dependency` aborts `pod install`
+# the moment a watchOS-targeted pod hits the resolver. The watchOS slice
+# pulls a single dep on our pod, which exposes the JSI / RN headers from
+# the prebuilt xcframework via standard CocoaPods header propagation.
 def _rnw_patch_install_modules_dependencies!
   return if $_rnw_install_modules_dependencies_patched
   return unless defined?(install_modules_dependencies)
@@ -28,45 +31,11 @@ def _rnw_patch_install_modules_dependencies!
     ensure
       spec.define_singleton_method(:dependency, &original_dependency)
     end
-  end
-end
 
-# Wrap the Podfile's `post_install` so every watchOS pod target picks
-# up the prebuilt xcframework's `Headers/` dirs in `HEADER_SEARCH_PATHS`
-# — autolinked pods include `<ReactCommon/CallInvoker.h>`, `<jsi/jsi.h>`,
-# etc. The DSL allows only one `post_install` block, so we wrap any
-# existing callback (typically RN's) instead of replacing it.
-def _rnw_wrap_post_install!(podfile)
-  return if $_rnw_post_install_wrapped
-  $_rnw_post_install_wrapped = true
-
-  xcframework_dir = File.expand_path(
-    '../build/xcframework/ReactNativeWatchOSCxx.xcframework', __dir__
-  )
-  extra_header_paths = [
-    "\"#{xcframework_dir}/watchos-arm64/Headers\"",
-    "\"#{xcframework_dir}/watchos-arm64-simulator/Headers\"",
-  ].join(' ')
-
-  existing = podfile.instance_variable_get(:@post_install_callback)
-  podfile.instance_variable_set(:@post_install_callback, nil)
-
-  podfile.post_install do |installer|
-    existing.call(installer) if existing
-
-    installer.pod_targets.each do |pod_target|
-      next unless pod_target.platform.name == :watchos
-      xc_target = installer.pods_project.targets.find do |t|
-        t.name == pod_target.label || t.name == pod_target.name
-      end
-      next unless xc_target&.respond_to?(:build_configurations)
-      xc_target.build_configurations.each do |config|
-        current = config.build_settings['HEADER_SEARCH_PATHS']
-        base = current.is_a?(Array) ? current.join(' ') : (current || '$(inherited)')
-        config.build_settings['HEADER_SEARCH_PATHS'] =
-          "#{base} #{extra_header_paths}"
-      end
-    end
+    # `s.watchos.dependency` is safe to call even if the spec doesn't list
+    # :watchos — it just registers a platform-scoped dep that will only be
+    # pulled when the pod is being installed for that platform.
+    spec.watchos.dependency 'ReactNativeWatchOSCxx' if spec.available_platforms.any? { |p| p.name == :watchos }
   end
 end
 
@@ -87,10 +56,23 @@ end
 #
 # Both call the same method.
 def use_watchos_modules!(opts = {})
-  # Patch + wrap deferred until call time: at `require`-time the Podfile
-  # is still being parsed and `Pod::Config.instance.podfile` re-enters.
+  # Patch deferred until call time: at `require`-time the Podfile is still
+  # being parsed and `Pod::Config.instance.podfile` re-enters.
   _rnw_patch_install_modules_dependencies!
-  _rnw_wrap_post_install!(self)
+
+  # Local pods shipped by this package, declared with explicit :path so
+  # CocoaPods treats them as development pods — and so ReactNativeWatchOS's
+  # `s.dependency 'ReactNativeWatchOSCxx'` resolves to the sibling podspec
+  # rather than a published spec (neither is published):
+  #   * ReactNativeWatchOSCxx — prebuilt JSI / RN host xcframework; supplies
+  #     <React/...>, <jsi/...> etc. to every autolinked third-party module.
+  #   * ReactNativeWatchOS    — the Swift host + SwiftUI bridge (the app-facing
+  #     `import ReactNativeWatchOS`); embeds hermes.xcframework.
+  pods_root = Pathname.new(Pod::Config.instance.installation_root)
+  package_root = Pathname.new(File.expand_path('..', __dir__))
+  package_rel = package_root.relative_path_from(pods_root).to_s
+  pod 'ReactNativeWatchOSCxx', :path => package_rel
+  pod 'ReactNativeWatchOS', :path => package_rel
 
   config_command = opts[:config_command] || [
     'npx', '--no-install', '@react-native-community/cli', 'config'
@@ -138,7 +120,6 @@ def use_watchos_modules!(opts = {})
     # `:path` strings byte-for-byte when deduping — an absolute path here vs.
     # a relative path on the iOS side counts as two different sources for
     # the same pod and aborts the install.
-    pods_root = Pathname.new(Pod::Config.instance.installation_root)
     relative_dir = Pathname.new(File.dirname(podspec_path))
                      .relative_path_from(pods_root)
                      .to_s

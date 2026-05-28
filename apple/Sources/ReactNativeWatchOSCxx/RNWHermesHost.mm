@@ -39,6 +39,21 @@ namespace {
 char kRNWJSQueueKeyByte = 0;
 void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
 
+// Zero-copy read-only jsi::Buffer over an NSData. Hermes reads its bytes
+// during evaluateJavaScript; the NSData retain keeps the storage alive
+// for the duration of the call (and for the lifetime of any cached
+// bytecode region Hermes may keep referencing).
+class RNWNSDataReadBuffer : public jsi::Buffer {
+public:
+    explicit RNWNSDataReadBuffer(NSData *data) : data_(data) {}
+    size_t size() const override { return data_.length; }
+    const uint8_t *data() const override {
+        return reinterpret_cast<const uint8_t *>(data_.bytes);
+    }
+private:
+    NSData *data_;
+};
+
 } // namespace
 
 @implementation RNWHermesHost {
@@ -475,7 +490,7 @@ void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
     });
 }
 
-- (void)evaluate:(NSString *)source
+- (void)evaluate:(NSData *)data
              url:(NSString *)url
       completion:(void (^)(NSError * _Nullable))completion {
     // The drain after bundle eval is load-bearing: React's first-render
@@ -484,8 +499,10 @@ void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
     _jsQueueRef.runOnJS(^(jsi::Runtime &rt) {
         NSError *err = nil;
         try {
-            auto buffer = std::make_shared<jsi::StringBuffer>(
-                std::string([source UTF8String]));
+            // Hermes detects source vs bytecode from the buffer's first
+            // bytes (bytecode magic header `0xC61FBC03…`) — same call
+            // works for both.
+            auto buffer = std::make_shared<RNWNSDataReadBuffer>(data);
             rt.evaluateJavaScript(buffer, std::string([url UTF8String]));
         } catch (const jsi::JSError &e) {
             err = [NSError

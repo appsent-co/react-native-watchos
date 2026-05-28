@@ -1,0 +1,20 @@
+diff --git a/lib/processor.js b/lib/processor.js
+index 0000000..1111111 100644
+--- a/lib/processor.js
++++ b/lib/processor.js
+@@ -85,7 +85,14 @@ async function processMarkdownFile(filePath, baseDir, siteUrl, pathPrefix = 'doc
+     if ((0, utils_1.isNonEmptyString)(resolvedUrl)) {
+         // Use the actual resolved URL from Docusaurus if provided
+         try {
+-            fullUrl = new URL(resolvedUrl, siteUrl).toString();
++            if (resolvedUrl.startsWith('/')) {
++                const base = new URL(siteUrl);
++                const basePath = base.pathname.replace(/\/$/, '');
++                const tail = resolvedUrl === '/' ? '' : resolvedUrl;
++                fullUrl = `${base.origin}${basePath}${tail}` || `${base.origin}/`;
++            } else {
++                fullUrl = new URL(resolvedUrl, siteUrl).toString();
++            }
+         }
+         catch (error) {
+             utils_1.logger.warn(`Invalid URL construction: ${resolvedUrl} with base ${siteUrl}. Using fallback.`);

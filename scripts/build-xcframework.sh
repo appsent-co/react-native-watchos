@@ -2,9 +2,10 @@
 set -eo pipefail
 
 # -----------------------------------------------------------------------------
-# Builds two XCFrameworks consumed by the local Swift Package (Package.swift):
+# Builds two XCFrameworks linked into the watch app via this package's
+# CocoaPods (ReactNativeWatchOS + ReactNativeWatchOSCxx; see cocoapods/autolink.rb):
 #
-#   1. build/xcframework/Hermes.xcframework
+#   1. build/xcframework/hermes.xcframework
 #        — repackages hermes.framework as a watchOS XCFramework with one slice
 #          per platform (device + simulator). Dynamic framework, embedded by
 #          the consumer app.
@@ -26,11 +27,13 @@ set -eo pipefail
 
 echo "Building ReactNativeWatchOS XCFrameworks..."
 
-# Architectures chosen for POC simplicity:
-#   - Device: arm64 (Apple Watch Series 9 / 10 / Ultra 2 / later)
-#   - Simulator: arm64 (Apple Silicon Macs only)
-# Add arm64_32 / x86_64 here if you need Series 4-8 or Intel-Mac support.
-DEVICE_ARCHS="arm64"
+# Architectures (semicolon-separated — these feed CMAKE_OSX_ARCHITECTURES):
+#   - Device: arm64 (Series 9 / 10 / Ultra 2 / later) + arm64_32 (Series 6-8 /
+#     SE 2). Xcode resolves the watch app target's device ARCHS to both, so the
+#     prebuilt slice must be a fat archive covering both or arm64_32 links fail
+#     with "undefined symbol" for everything the xcframework provides.
+#   - Simulator: arm64 (Apple Silicon Macs only). Add x86_64 for Intel Macs.
+DEVICE_ARCHS="arm64;arm64_32"
 SIMULATOR_ARCHS="arm64"
 
 WATCHOS_DEPLOYMENT_TARGET="9.0"
@@ -275,7 +278,7 @@ for slice in device simulator; do
 
     # Module map must live alongside (or be referenced from) the headers root.
     # Place a top-level module map that re-exports the ReactNativeWatchOSCxx
-    # module so SPM can find it on the Headers search path.
+    # module so consumers find it on the Headers search path.
     cp "apple/Sources/ReactNativeWatchOSCxx/include/ReactNativeWatchOSCxx/module.modulemap" \
         "build/xcframework/$slice/Headers/module.modulemap"
 done
@@ -284,12 +287,12 @@ done
 # 5. Create the two XCFrameworks
 # -----------------------------------------------------------------------------
 
-echo "Creating Hermes.xcframework..."
-rm -rf build/xcframework/Hermes.xcframework
+echo "Creating hermes.xcframework..."
+rm -rf build/xcframework/hermes.xcframework
 xcodebuild -create-xcframework \
     -framework "$BUILD_DIR/output-dev/hermes.framework" \
     -framework "$BUILD_DIR/output-sim/hermes.framework" \
-    -output build/xcframework/Hermes.xcframework
+    -output build/xcframework/hermes.xcframework
 
 echo "Creating ReactNativeWatchOSCxx.xcframework..."
 rm -rf build/xcframework/ReactNativeWatchOSCxx.xcframework
@@ -309,13 +312,13 @@ xcodebuild -create-xcframework \
 
 echo ""
 echo "✅ XCFrameworks created successfully!"
-echo "📦 build/xcframework/Hermes.xcframework"
+echo "📦 build/xcframework/hermes.xcframework"
 echo "📦 build/xcframework/ReactNativeWatchOSCxx.xcframework"
 echo ""
 echo "Slices:"
-echo "  - watchOS device      ($DEVICE_ARCHS)"
-echo "  - watchOS simulator   ($SIMULATOR_ARCHS)"
+echo "  - watchOS device      (${DEVICE_ARCHS//;/, })"
+echo "  - watchOS simulator   (${SIMULATOR_ARCHS//;/, })"
 echo ""
-echo "Next: open example/ios/WatchosExample.xcworkspace, ensure the local"
-echo "Swift Package at apple/ is added to the 'WatchApp Watch App' target,"
-echo "then Build & Run."
+echo "Next: re-run \`expo prebuild\` then \`pod install\` in example/ios, then"
+echo "open example/ios/watchosexample.xcworkspace and Build & Run the watch"
+echo "scheme on a device or simulator."

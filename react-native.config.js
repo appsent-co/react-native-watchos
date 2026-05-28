@@ -10,11 +10,7 @@ module.exports = {
   dependency: {
     platforms: {
       ios: {
-        podspecPath: path.join(
-          __dirname,
-          'cocoapods',
-          'RNWatchConnectivity.podspec'
-        ),
+        podspecPath: path.join(__dirname, 'RNWatchConnectivity.podspec'),
       },
     },
   },

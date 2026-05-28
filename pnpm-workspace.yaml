@@ -3,3 +3,4 @@ packages:
   - docs
 patchedDependencies:
   '@op-engineering/op-sqlite@16.1.1': patches/@op-engineering__op-sqlite@16.1.1.patch
+  'docusaurus-plugin-llms@0.4.0': patches/docusaurus-plugin-llms@0.4.0.patch

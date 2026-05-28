@@ -150,6 +150,21 @@ const withWatchBundleScript = (
         '  --minify true \\',
         '  --bytecode false \\',
         '  --assets-dest "$DEST"',
+        // Pre-compile the JS bundle to Hermes bytecode (.hbc) so the watch
+        // runtime skips parse+compile on every cold start. Bundle name on
+        // disk stays `.jsbundle`; Hermes detects bytecode vs source from
+        // the file's magic header. Uses the hermesc that ships with
+        // react-native (matches the host Hermes version we link against).
+        //
+        // `require.resolve` handles pnpm/yarn-workspace hoisting — RN may
+        // be in node_modules/ or hoisted to the workspace root.
+        'HERMESC_BIN="$("$NODE_BINARY" --print "require(\'path\').join(require(\'path\').dirname(require.resolve(\'react-native/package.json\')), \'sdks/hermesc/osx-bin/hermesc\')")"',
+        'if [ ! -x "$HERMESC_BIN" ]; then',
+        '  echo "error: hermesc not found at $HERMESC_BIN" >&2',
+        '  exit 1',
+        'fi',
+        `"$HERMESC_BIN" -emit-binary -out "$DEST/${bundleName}.hbc" "$DEST/${bundleName}.jsbundle"`,
+        `mv "$DEST/${bundleName}.hbc" "$DEST/${bundleName}.jsbundle"`,
       ].join('\n');
 
       // -------------------------------------------------------------

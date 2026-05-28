@@ -1,6 +1,5 @@
 // @ts-check
 const { withPlugins } = require('@expo/config-plugins');
-const withSPMPackage = require('./withSPMPackage');
 const withWatchAutolinking = require('./withWatchAutolinking');
 const withWatchBundleScript = require('./withWatchBundleScript');
 const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
@@ -8,10 +7,15 @@ const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
 /**
  * Expo Config Plugin for `@appsent-co/react-native-watchos`.
  *
- * Two pbxproj mods on the watch target that `@bacons/apple-targets`
- * creates during `expo prebuild`:
- *   1. `withSPMPackage` — wires the local Swift Package (Hermes + JSI host).
- *   2. `withWatchBundleScript` — adds a Release-only Run Script Build Phase
+ * Mods applied to the watch target that `@bacons/apple-targets` creates
+ * during `expo prebuild`:
+ *   1. `withWatchTurboModuleCodegen` — runs RN codegen for the watch target
+ *      so generated TurboModule specs are wired into the pbxproj.
+ *   2. `withWatchAutolinking` — writes `targets/<name>/pods.rb` so the
+ *      runtime (`ReactNativeWatchOS` + `ReactNativeWatchOSCxx`, embedding
+ *      Hermes) and every `:watchos`-declared third-party RN module link into
+ *      the watch target via CocoaPods.
+ *   3. `withWatchBundleScript` — adds a Release-only Run Script Build Phase
  *      that invokes `expo export:embed --platform watchos` and writes
  *      `main.jsbundle` into the watch app's resources.
  *
@@ -55,7 +59,6 @@ const withReactNativeWatchOS = (config, opts) => {
   const entryFile = opts && opts.entryFile;
   const watchosDeploymentTarget = opts && opts.watchosDeploymentTarget;
   return withPlugins(config, [
-    [withSPMPackage, { targetName }],
     // Run codegen BEFORE the bundle script so the generated sources are
     // wired into the watch target's pbxproj when Xcode opens it (the
     // bundle script is a separate Run Script phase that doesn't depend

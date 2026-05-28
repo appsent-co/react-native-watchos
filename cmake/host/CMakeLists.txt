@@ -4,7 +4,7 @@ project(ReactNativeWatchOSHost LANGUAGES C CXX OBJC OBJCXX)
 # -----------------------------------------------------------------------------
 # Compiles apple/Sources/ReactNativeWatchOSCxx/RNWHermesHost.mm into a static
 # library that's later combined with libjsi.a to form the XCFramework slice
-# consumed by SPM as the `ReactNativeWatchOSCxx` binary target.
+# consumed as the `ReactNativeWatchOSCxx` CocoaPod (vendored xcframework).
 #
 # Inputs (set by build-xcframework.sh per slice):
 #   -DPLATFORM_NAME=watchos | watchsimulator
@@ -176,8 +176,9 @@ target_compile_options(RNWHost PUBLIC
 
 # A static library doesn't actually link, so we don't need to point at the
 # Hermes framework here — only the consumer app (the watch app) needs to do
-# that, and it does so via SPM embedding Hermes.xcframework. We just need
-# Hermes's headers on the include path for compilation.
+# that, and it does so via the ReactNativeWatchOS pod embedding
+# hermes.xcframework. We just need Hermes's headers on the include path for
+# compilation.
 
 # -----------------------------------------------------------------------------
 # Install

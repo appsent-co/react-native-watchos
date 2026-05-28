@@ -42,6 +42,7 @@ const config: Config = {
           'Build watchOS apps with React Native, rendered as native SwiftUI.',
         excludeImports: true,
         removeDuplicateHeadings: true,
+        addMdExtension: false,
         includeOrder: [
           'intro.md',
           'getting-started/*',

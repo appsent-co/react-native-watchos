@@ -34,6 +34,10 @@ function buildInteropModule<T>(name: string): T {
   }
   const constants = getConstants ? getConstants(name) : null;
   const base: Record<string, unknown> = { ...(constants ?? {}) };
+  // Legacy modules call `.getConstants()` as a method (op-sqlite, etc.).
+  // Serve it from the already-fetched constants rather than dispatching to
+  // native, where it isn't an RCT_EXPORT_METHOD and would 404.
+  base.getConstants = () => constants ?? {};
   const proxy = new Proxy(base, {
     get(target, prop) {
       if (typeof prop !== 'string') {

@@ -183,6 +183,11 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     /// On every call past the first, the Hermes runtime is recreated so
     /// the previous bundle's state (modules, fibers, timers, sockets,
     /// shadow nodes) is dropped before the new bundle evaluates.
+    ///
+    /// The bundle bytes are passed to Hermes verbatim — UTF-8 source from
+    /// the dev server and pre-compiled `.hbc` bytecode from the Release
+    /// build phase both work, because Hermes auto-detects bytecode via
+    /// its magic header.
     public func loadBundle(from url: URL) async throws {
         if hasLoadedOnce {
             recreateHost()
@@ -194,20 +199,13 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         } else {
             (data, _) = try await URLSession.shared.data(from: url)
         }
-        guard let source = String(data: data, encoding: .utf8) else {
-            throw NSError(
-                domain: "ReactNativeWatchOS",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "Bundle response was not valid UTF-8"]
-            )
-        }
         // Inject `__RNW_DEV_SERVER` before the bundle so dev-support can
-        // set up Fast Refresh + HMR. Skipped for file:// / non-dev.
+        // set up Fast Refresh + HMR. Skipped for file:// / non-dev — and
+        // it's always source JS, so UTF-8 encode inline.
         if let injection = Self.devServerInjection(for: url) {
-            try await evaluate(source: injection, url: "<rnw-dev-server>")
+            try await evaluate(data: Data(injection.utf8), url: "<rnw-dev-server>")
         }
-        try await evaluate(source: source, url: url.absoluteString)
+        try await evaluate(data: data, url: url.absoluteString)
     }
 
     /// Returns nil for non-dev-server URLs — dev-support no-ops when the
@@ -264,11 +262,12 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         URLSession.shared.dataTask(with: req).resume()
     }
 
-    /// Evaluate JS source on the host's JS queue. Suspends the caller but
-    /// doesn't block main.
-    public func evaluate(source: String, url: String) async throws {
+    /// Evaluate JS on the host's JS queue. `data` may hold UTF-8 source or
+    /// pre-compiled Hermes bytecode — Hermes detects which via the buffer's
+    /// magic header. Suspends the caller but doesn't block main.
+    public func evaluate(data: Data, url: String) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            host.evaluate(source, url: url) { error in
+            host.evaluate(data, url: url) { error in
                 if let error {
                     cont.resume(throwing: error)
                 } else {
@@ -276,6 +275,12 @@ public final class ReactNativeWatchOSHost: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Convenience for ad-hoc JS source — UTF-8 encodes and forwards to
+    /// `evaluate(data:url:)`. Use the Data variant for pre-compiled bytecode.
+    public func evaluate(source: String, url: String) async throws {
+        try await evaluate(data: Data(source.utf8), url: url)
     }
 
     private static func levelName(_ level: RNWLogLevel) -> String {

@@ -4,15 +4,8 @@
 // opens the HMR WebSocket. No-op in production bundles.
 import '@appsent-co/react-native-watchos/dev-support';
 
-import { render, VStack, Text } from '@appsent-co/react-native-watchos/renderer';
+import { render } from '@appsent-co/react-native-watchos/renderer';
 
-// import App from './App';
-function App() {
-  return (
-    <VStack>
-      <Text>Hello from watchOS</Text>
-    </VStack>
-  );
-}
+import App from './App';
 
 render(<App />);

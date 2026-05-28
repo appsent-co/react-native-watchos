@@ -52,23 +52,16 @@ Pod::Spec.new do |s|
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) RCT_NEW_ARCH_ENABLED=1',
   }
 
-  # Watch slice imports `<ReactNativeWatchOSCxx/...>` headers from the
-  # prebuilt xcframework (whose headers aren't picked up automatically
-  # by CocoaPods since the xcframework is consumed via SPM). It also
-  # imports `RNWatchConnectivitySpec.h` from the watchOS codegen output
-  # written by `withWatchTurboModuleCodegen`.
-  #
-  # `${PODS_TARGET_SRCROOT}` resolves to this pod's source root —
-  # i.e. the package root since the podspec lives there. From there:
-  #   * xcframework headers: `build/xcframework/.../Headers`
-  #   * generated codegen:   relative to PODS_ROOT (consumer's ios/Pods),
-  #                          so we walk up to ios/build/generated.
+  # Watch slice pulls `<React/...>`, `<jsi/...>`, `<ReactCommon/...>` and
+  # `<ReactNativeWatchOSCxx/...>` from the `ReactNativeWatchOSCxx` pod
+  # (which vendors our prebuilt xcframework). The only extra search path
+  # we still need is the watchOS codegen output written by
+  # `withWatchTurboModuleCodegen`, which lives outside any pod.
+  s.watchos.dependency 'ReactNativeWatchOSCxx'
   s.watchos.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) RCT_NEW_ARCH_ENABLED=1',
     'HEADER_SEARCH_PATHS' => '$(inherited) ' \
-      '"${PODS_TARGET_SRCROOT}/build/xcframework/ReactNativeWatchOSCxx.xcframework/watchos-arm64/Headers" ' \
-      '"${PODS_TARGET_SRCROOT}/build/xcframework/ReactNativeWatchOSCxx.xcframework/watchos-arm64-simulator/Headers" ' \
       '"${PODS_ROOT}/../build/generated/watchos-codegen-libs/RNWatchConnectivitySpec" ' \
       '"${PODS_ROOT}/../build/generated/watchos-codegen-libs/RNWatchConnectivitySpec/RNWatchConnectivitySpec"',
   }

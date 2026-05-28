@@ -21,10 +21,11 @@ typedef NS_ENUM(NSInteger, RNWLogLevel) {
 
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
 
-/// Evaluate a JS source string on the JS queue. `url` is the source URL
-/// for stack traces. `completion` fires on the main queue with nil on
-/// success.
-- (void)evaluate:(NSString *)source
+/// Evaluate JS on the JS queue. `data` may hold UTF-8 source or
+/// pre-compiled Hermes bytecode — Hermes detects which via the buffer's
+/// magic header. `url` is the source URL for stack traces. `completion`
+/// fires on the main queue with nil on success.
+- (void)evaluate:(NSData *)data
              url:(NSString *)url
       completion:(void (^)(NSError * _Nullable error))completion;
 
