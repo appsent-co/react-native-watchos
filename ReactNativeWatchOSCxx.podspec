@@ -67,5 +67,10 @@ Pod::Spec.new do |s|
     # for the ObjC headers; suppress the warning when other headers (jsi, react)
     # are #include'd from inside that module.
     'CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER' => 'NO',
+    # The vendored xcframework has no x86_64 watchsimulator slice; without
+    # this the [CP] Copy XCFrameworks script for this aggregate target fails
+    # to match a slice when ARCHS includes x86_64, so the extraction is
+    # skipped and dependents can't find the module map.
+    'EXCLUDED_ARCHS[sdk=watchsimulator*]' => 'x86_64',
   }
 end

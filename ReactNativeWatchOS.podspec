@@ -45,6 +45,16 @@ Pod::Spec.new do |s|
 
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
+    # `import ReactNativeWatchOSCxx` in Swift: the dependency ships a static-lib
+    # xcframework, not a `.framework`, so Swift's clang importer won't auto-
+    # discover its module.modulemap from HEADER_SEARCH_PATHS. Point at it
+    # explicitly. `${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeWatchOSCxx/Headers`
+    # is populated by ReactNativeWatchOSCxx's [CP] Copy XCFrameworks phase,
+    # which runs before this pod compiles (target dep via s.dependency).
+    'OTHER_SWIFT_FLAGS' => '$(inherited) -Xcc -fmodule-map-file=${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeWatchOSCxx/Headers/module.modulemap',
+    # Match the EXCLUDED_ARCHS on ReactNativeWatchOSCxx so this pod's compile
+    # and the dependency's xcframework slice both target arm64 only on the sim.
+    'EXCLUDED_ARCHS[sdk=watchsimulator*]' => 'x86_64',
   }
 
   # The watch target builds arm64 only on the simulator (Apple Silicon); the

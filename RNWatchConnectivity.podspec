@@ -64,6 +64,9 @@ Pod::Spec.new do |s|
     'HEADER_SEARCH_PATHS' => '$(inherited) ' \
       '"${PODS_ROOT}/../build/generated/watchos-codegen-libs/RNWatchConnectivitySpec" ' \
       '"${PODS_ROOT}/../build/generated/watchos-codegen-libs/RNWatchConnectivitySpec/RNWatchConnectivitySpec"',
+    # Vendored xcframework has no x86_64 watchsim slice; pod targets must
+    # exclude it or the xcframework copy script can't pick a slice.
+    'EXCLUDED_ARCHS[sdk=watchsimulator*]' => 'x86_64',
   }
 
   s.compiler_flags = '-fobjc-arc-exceptions'
