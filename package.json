@@ -1,6 +1,6 @@
 {
   "name": "@appsent-co/react-native-watchos",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Build WatchOS apps in react-native",
   "main": "./plugin/src/index.js",
   "bin": {
@@ -29,6 +29,7 @@
     "metro-config.d.ts",
     "react-native.config.js",
     "RNWatchConnectivity.podspec",
+    "ReactNativeWatchOS.podspec",
     "ReactNativeWatchOSCxx.podspec",
     "react-native-watchos.podspec",
     "cli",
