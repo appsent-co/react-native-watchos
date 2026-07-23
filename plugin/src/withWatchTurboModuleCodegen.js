@@ -126,6 +126,7 @@ function collectCodegenJobs(projectRoot) {
     for (const pkgDir of enumeratePackages(nodeModules)) {
       const libConfig = readCodegenConfigFrom(pkgDir);
       if (!libConfig) continue;
+      if (!packageSupportsWatchos(pkgDir)) continue;
       const jsSrcsDir = path.resolve(pkgDir, libConfig.jsSrcsDir);
       if (!fs.existsSync(jsSrcsDir)) continue;
       const specFiles = findSpecFiles(jsSrcsDir);
@@ -183,6 +184,65 @@ function readCodegenConfigFrom(pkgDir) {
   if (!pkg.codegenConfig) return null;
   if (!pkg.codegenConfig.jsSrcsDir) return null;
   return pkg.codegenConfig;
+}
+
+// Platform declarations a podspec uses to opt into the watchOS SDK:
+//   s.platforms = { :watchos => "9.0" }      -> `:watchos`
+//   s.platforms = { "watchos" => "9.0" }     -> `"watchos"` / `'watchos'`
+//   s.watchos.deployment_target = "9.0"      -> `.watchos`
+// Matching the declaration syntax (not a bare `watchos` substring) keeps
+// comments/prose in iOS-only podspecs from registering as false positives.
+const WATCHOS_PODSPEC_TOKEN = /:watchos\b|["']watchos["']|\.watchos\b/;
+
+/**
+ * Whether `pkgDir` ships a podspec that declares watchOS support — the
+ * same opt-in signal `use_watchos_modules!` (cocoapods/autolink.rb) uses
+ * to decide what to autolink into the watch target. A package with a
+ * `codegenConfig` but no watchOS-supporting podspec is an iOS-only RN
+ * module (safe-area-context, reanimated, screens, …): its codegen output
+ * pulls iOS-only React-Core templates and fails to compile, and the pod
+ * isn't linked into the watch target anyway.
+ *
+ * We text-scan the podspec rather than evaluating it (it's Ruby); the
+ * Ruby autolinker does the authoritative `Pod::Specification` load.
+ */
+function packageSupportsWatchos(pkgDir) {
+  for (const podspec of findPodspecFiles(pkgDir)) {
+    let src;
+    try {
+      src = fs.readFileSync(podspec, 'utf8');
+    } catch (_e) {
+      continue;
+    }
+    if (WATCHOS_PODSPEC_TOKEN.test(src)) return true;
+  }
+  return false;
+}
+
+/**
+ * Collect `*.podspec` files for a package. Podspecs live at the package
+ * root in the overwhelming majority of RN modules; we walk a couple of
+ * levels deep (skipping nested `node_modules`) to catch the rare module
+ * that nests its podspec, without scanning the whole subtree.
+ */
+function findPodspecFiles(pkgDir, depth = 2) {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(pkgDir, { withFileTypes: true });
+  } catch (_e) {
+    return out;
+  }
+  for (const entry of entries) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const abs = path.join(pkgDir, entry.name);
+    if (entry.isFile()) {
+      if (entry.name.endsWith('.podspec')) out.push(abs);
+    } else if (entry.isDirectory() && depth > 0) {
+      out.push(...findPodspecFiles(abs, depth - 1));
+    }
+  }
+  return out;
 }
 
 /**
