@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 
 import { AsyncImageDemo } from './AsyncImageDemo';
 import { DatePickerDemo } from './DatePickerDemo';
+import { FireflyDemo } from './FireflyDemo';
 import { FormDemo } from './FormDemo';
 import { GaugeDemo } from './GaugeDemo';
 import { GroupDemo } from './GroupDemo';
@@ -27,6 +28,7 @@ export interface DemoEntry {
 export const DEMOS: readonly DemoEntry[] = [
   { name: 'AsyncImage', icon: 'photo', Component: AsyncImageDemo },
   { name: 'DatePicker', icon: 'calendar', Component: DatePickerDemo },
+  { name: 'Firefly', icon: 'sparkles', Component: FireflyDemo },
   { name: 'Form', icon: 'list.bullet.rectangle', Component: FormDemo },
   { name: 'Gauge', icon: 'gauge', Component: GaugeDemo },
   { name: 'Group', icon: 'square.on.square', Component: GroupDemo },

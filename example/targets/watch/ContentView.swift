@@ -25,8 +25,18 @@ struct ContentView: View {
     // the `example/` prefix (or just omit the `entry:` arg — the default is
     // already `"index.watchos"`).
     //
-    // 127.0.0.1 works from the watchOS Simulator (shares the host's loopback).
-    // For real-device testing, pass the Mac's LAN IP:
+    // 127.0.0.1:8081 works from the watchOS Simulator (shares the host's
+    // loopback) when Metro is on the default port. Without editing this
+    // file, the DEBUG endpoint can be overridden through the
+    // `RNWDevServerHost` / `RNWDevServerPort` Info.plist keys, which this
+    // target's Info.plist wires to the `RNW_DEV_SERVER_HOST` /
+    // `RNW_DEV_SERVER_PORT` build settings:
+    //   - 8081 already taken by another Metro (`npx expo start --port 8082`):
+    //       xcodebuild ... RNW_DEV_SERVER_PORT=8082
+    //   - physical watch reaching the Mac's LAN IP (plain http, allowed by
+    //     the NSAllowsLocalNetworking ATS exception in Info.plist):
+    //       xcodebuild ... RNW_DEV_SERVER_HOST=192.168.1.42
+    // Explicit arguments still win over the plist:
     //   ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index.watchos", host: "192.168.1.42")
     private let bundleURL = ReactNativeWatchOSHost.defaultBundleURL(entry: "example/index.watchos")
 

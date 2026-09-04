@@ -3,6 +3,7 @@ const { withPlugins } = require('@expo/config-plugins');
 const withWatchAutolinking = require('./withWatchAutolinking');
 const withWatchBundleScript = require('./withWatchBundleScript');
 const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
+const withWatchInfoPlist = require('./withWatchInfoPlist');
 
 /**
  * Expo Config Plugin for `@appsent-co/react-native-watchos`.
@@ -18,6 +19,13 @@ const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
  *   3. `withWatchBundleScript` — adds a Release-only Run Script Build Phase
  *      that invokes `expo export:embed --platform watchos` and writes
  *      `main.jsbundle` into the watch app's resources.
+ *   4. `withWatchInfoPlist` — adds the keys the runtime's DEBUG path reads
+ *      to `targets/<name>/Info.plist` when they are missing:
+ *      `RNWDevServerHost` / `RNWDevServerPort` (= `$(RNW_DEV_SERVER_HOST)` /
+ *      `$(RNW_DEV_SERVER_PORT)`, so the Metro endpoint is an xcodebuild
+ *      argument), the `NSAllowsLocalNetworking` ATS exception (plain-http
+ *      bundle fetch from a physical watch) and `NSMotionUsageDescription`
+ *      (shake-to-open dev menu).
  *
  * Recommended app.json:
  *
@@ -66,6 +74,7 @@ const withReactNativeWatchOS = (config, opts) => {
     [withWatchTurboModuleCodegen, { targetName }],
     [withWatchAutolinking, { targetName, watchosDeploymentTarget }],
     [withWatchBundleScript, { targetName, bundleName, entryFile }],
+    [withWatchInfoPlist, { targetName }],
   ]);
 };
 

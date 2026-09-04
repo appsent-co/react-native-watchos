@@ -55,6 +55,10 @@ This runs Evan Bacon's `create-target watch` under the hood, then:
   [`ContentView.swift`](https://github.com/appsent-co/react-native-watchos/blob/main/plugin/templates/ContentView.swift)
   into `targets/<name>/` — this is the SwiftUI entry that hosts the
   React root view,
+- adds the runtime's Info.plist keys to `targets/<name>/Info.plist`
+  (`RNWDevServerHost` / `RNWDevServerPort`, the `NSAllowsLocalNetworking`
+  ATS exception, `NSMotionUsageDescription`) — see
+  [Dev-server endpoint](../expo-plugin#dev-server-endpoint),
 - scaffolds
   [`index.watchos.tsx`](https://github.com/appsent-co/react-native-watchos/blob/main/plugin/templates/index.watchos.tsx)
   at the project root — the JS entry the watch will load,
@@ -148,8 +152,15 @@ Save. The watch should update in place without a full reload.
 
 **The watch app shows a blank screen.** Check the Metro terminal —
 if there's no `watchos` bundle request, the embedder couldn't reach
-your dev server. Confirm the watch and your Mac are on the same
-network; the watch hits `http://<mac-ip>:8081` by default.
+your dev server. The DEBUG build hits `http://127.0.0.1:8081` by
+default, which only works from the simulator. If Metro is on another
+port, or you are on a physical watch, pass the endpoint as build
+settings — `xcodebuild ... RNW_DEV_SERVER_PORT=8082` or
+`RNW_DEV_SERVER_HOST=<your Mac's LAN IP>` — see
+[Dev-server endpoint](../expo-plugin#dev-server-endpoint). The
+`NSAllowsLocalNetworking` App Transport Security exception that lets
+the plain-`http://` LAN fetch through is written into
+`targets/<name>/Info.plist` by `init` / the config plugin.
 
 **`Cannot find module 'react-native'` on the watch.** You forgot
 `withWatchosMetro` in `metro.config.js` — the shim alias isn't
