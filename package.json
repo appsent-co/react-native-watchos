@@ -13,15 +13,17 @@
       "default": "./metro-config.js"
     },
     "./renderer": "./src/index.ts",
+    "./polyfills": "./src/polyfills.ts",
     "./dev-support": "./src/devSupport/index.ts",
     "./watch-connectivity": "./src/watchConnectivity/index.ts",
+    "./secure-storage": "./src/secureStorage/index.ts",
     "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json"
   },
   "codegenConfig": {
     "name": "RNWatchConnectivitySpec",
     "type": "modules",
-    "jsSrcsDir": "src/watchConnectivity/specs"
+    "jsSrcsDir": "src/specs"
   },
   "files": [
     "app.plugin.js",
@@ -98,7 +100,9 @@
   "sideEffects": [
     "src/polyfills.ts",
     "src/setupConsole.ts",
-    "src/setupSelfGlobal.ts"
+    "src/setupSelfGlobal.ts",
+    "src/setupWebGlobals.ts",
+    "src/setupCrypto.ts"
   ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",

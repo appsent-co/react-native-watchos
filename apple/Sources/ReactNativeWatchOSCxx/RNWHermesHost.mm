@@ -5,7 +5,9 @@
 #import <React/RCTBridge+Private.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import "RNWCallInvoker.h"
+#import "RNWCrypto.h"
 #import "RNWNativeModules.h"
+#import "RNWTextDecoder.h"
 #import "RNWUIManager.h"
 #import "RNWWebSocket.h"
 #import "RNWXHR.h"
@@ -94,10 +96,7 @@ private:
                     .withMicrotaskQueue(true)
                     .build();
             _runtime = fbhermes::makeHermesRuntime(runtimeConfig);
-            // Must be set before any consumer captures `_jsQueueRef` by
-            // value (their copy would otherwise carry a null runtime pointer
-            // and silently skip the drain).
-            _jsQueueRef.runtime = _runtime.get();
+            _jsQueueRef.setRuntime(_runtime.get());
             _jsCallInvoker =
                 std::make_shared<facebook::react::RNWJSQueueCallInvoker>(
                     _jsQueueRef);
@@ -113,6 +112,8 @@ private:
             [self installReload];
             rnwInstallWebSocket(*_runtime, _jsQueueRef);
             rnwInstallXHR(*_runtime, _jsQueueRef);
+            rnwInstallCrypto(*_runtime);
+            rnwInstallTextDecoder(*_runtime);
             [self installTurboModules];
             [self installNativeModules];
         });
@@ -135,7 +136,11 @@ private:
         __block std::shared_ptr<jsi::Runtime> runtime = std::move(_runtime);
         __block auto timers = std::move(_timers);
         __block auto intervals = std::move(_intervalSources);
+        facebook::react::RNWJSQueue jsQueueRef = _jsQueueRef;
         dispatch_sync(queue, ^{
+            // Ahead of `runtime.reset()`, so hops queued behind this block
+            // find a null runtime and return.
+            jsQueueRef.invalidate();
             for (auto &entry : intervals) {
                 dispatch_source_cancel(entry.second);
             }

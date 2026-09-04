@@ -1,4 +1,5 @@
 #import "RNWXHR.h"
+#import "RNWNSDataBuffer.h"
 
 #include <memory>
 #include <string>
@@ -23,19 +24,6 @@ NSURLSession *RNWSharedXHRSession() {
     return session;
 }
 
-// Zero-copy ArrayBuffer storage backed by NSData. ArrayBuffer doesn't
-// mutate after construction, so handing out a const pointer cast is fine.
-class RNWNSDataBuffer : public jsi::MutableBuffer {
-public:
-    explicit RNWNSDataBuffer(NSData *data) : data_(data) {}
-    size_t size() const override { return data_.length; }
-    uint8_t *data() override {
-        return reinterpret_cast<uint8_t *>(const_cast<void *>(data_.bytes));
-    }
-private:
-    NSData *data_;
-};
-
 void appendHeaderLine(std::string &out, NSString *name, NSString *value) {
     out += [name UTF8String] ?: "";
     out += ": ";
@@ -56,10 +44,24 @@ public:
         return self;
     }
 
+    // Off the JS queue (a completion block held the last reference) the JSI
+    // handles go through `destroyOnJS`; see RNWCallInvoker.h.
     ~RNWXHRHost() override {
-        // Pending completion still fires; weak_from_this() returns nullptr
-        // by then so the block no-ops.
         [_task cancel];
+        if (_jsQueue.isCurrent()) return;
+        struct Handles {
+            std::vector<std::shared_ptr<jsi::Function>> functions;
+            std::shared_ptr<jsi::ArrayBuffer> response;
+        };
+        auto bag = std::make_shared<Handles>();
+        for (auto *slot : {&_openFn, &_sendFn, &_abortFn, &_setReqHeaderFn,
+                           &_getRespHeaderFn, &_getAllRespHeadersFn,
+                           &_overrideMimeFn, &_onreadystatechange, &_onload,
+                           &_onerror, &_onabort, &_ontimeout, &_onloadend}) {
+            if (*slot) bag->functions.push_back(std::move(*slot));
+        }
+        bag->response = std::move(_responseAB);
+        _jsQueue.destroyOnJS(std::move(bag));
     }
 
     jsi::Value get(jsi::Runtime &rt, const jsi::PropNameID &name) override {
@@ -383,7 +385,7 @@ private:
         if (parsed == nil) {
             // Synthesize an error so onerror/onloadend still fire.
             std::weak_ptr<RNWXHRHost> weakSelf = weak_from_this();
-            _jsQueue.runAsync(^{
+            _jsQueue.runOnJS(^(jsi::Runtime &) {
                 auto self = weakSelf.lock();
                 if (!self) return;
                 self->_readyState = 4;
@@ -428,7 +430,9 @@ private:
                 NSHTTPURLResponse *httpResp =
                     [response isKindOfClass:[NSHTTPURLResponse class]]
                         ? (NSHTTPURLResponse *)response : nil;
-                self->_jsQueue.runAsync(^{
+                // `runOnJS`, not `runAsync`: the hop no-ops after a reload
+                // instead of reaching a dangling runtime.
+                self->_jsQueue.runOnJS(^(jsi::Runtime &) {
                     auto inner = weakSelf.lock();
                     if (!inner) return;
                     // Stale task — open() was called again after we kicked off,
@@ -470,7 +474,11 @@ private:
             _responseHeaders = httpResp.allHeaderFields;
         }
         _responseData = data;
-        _responseText = textPayload ? [textPayload UTF8String] : "";
+        // Byte length: `std::string(const char *)` stops at the first NUL.
+        _responseText = textPayload
+            ? std::string(textPayload.UTF8String ?: "",
+                          [textPayload lengthOfBytesUsingEncoding:NSUTF8StringEncoding])
+            : "";
 
         // Spec requires HEADERS_RECEIVED → LOADING → DONE with a
         // readystatechange between each. axios reads intermediate states.

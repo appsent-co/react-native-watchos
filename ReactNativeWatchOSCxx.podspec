@@ -61,6 +61,9 @@ Pod::Spec.new do |s|
   # JSI is C++; consumers must link libc++ since the static archive doesn't.
   s.libraries = 'c++'
 
+  # SecRandomCopyBytes (RNWCrypto.mm); the archive only references it.
+  s.frameworks = 'Security'
+
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
     # The xcframework's module.modulemap declares `module ReactNativeWatchOSCxx`

@@ -9,11 +9,13 @@ import { GroupDemo } from './GroupDemo';
 import { LabelDemo } from './LabelDemo';
 import { LocalImageDemo } from './LocalImageDemo';
 import { PickerDemo } from './PickerDemo';
+import { RuntimeProbeDemo } from './RuntimeProbeDemo';
 import { ShapesDemo } from './ShapesDemo';
 import { SheetDemo } from './SheetDemo';
 import { SQLiteDemo } from './SQLiteDemo';
 import { StepperDemo } from './StepperDemo';
 import { TextInputDemo } from './TextInputDemo';
+import { WebSocketDemo } from './WebSocketDemo';
 
 export interface DemoEntry {
   /// Display name in the gallery list and the destination's navigation title.
@@ -35,6 +37,11 @@ export const DEMOS: readonly DemoEntry[] = [
   { name: 'Label', icon: 'tag', Component: LabelDemo },
   { name: 'LocalImage', icon: 'photo.fill', Component: LocalImageDemo },
   { name: 'Picker', icon: 'list.bullet', Component: PickerDemo },
+  {
+    name: 'RuntimeProbe',
+    icon: 'checklist',
+    Component: RuntimeProbeDemo,
+  },
   { name: 'Shapes', icon: 'square.on.circle', Component: ShapesDemo },
   {
     name: 'Sheet',
@@ -48,4 +55,5 @@ export const DEMOS: readonly DemoEntry[] = [
     icon: 'character.cursor.ibeam',
     Component: TextInputDemo,
   },
+  { name: 'WebSocket', icon: 'antenna.radiowaves.left.and.right', Component: WebSocketDemo },
 ];

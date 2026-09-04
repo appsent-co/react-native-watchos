@@ -24,11 +24,16 @@ path is not documented yet.
   watch-specific modifiers like digital crown rotation and sensory
   feedback.
 - **JS runtime** — Hermes embedded on watchOS via JSI, with
-  `console.*`, timers, `fetch`/`XMLHttpRequest`, and `WebSocket`.
+  `console.*`, timers, `queueMicrotask`, `fetch`/`XMLHttpRequest`, a
+  WHATWG `WebSocket` (subprotocols, binary frames, `addEventListener`),
+  `crypto.getRandomValues`, `TextEncoder`/`TextDecoder`, `atob`/`btoa`
+  and `Symbol.asyncIterator` — see [Runtime globals](./runtime-globals).
 - **TurboModules** — Create native modules in Swift / Obj-C++ and call
   them from JS with full codegen support.
 - **Watch Connectivity** — Bidirectional messaging, user-info / app
   context sync, reachability, binary payloads.
+- **Secure Storage** — Keychain-backed storage for small secrets, same
+  API on the watch and the phone — see [Secure Storage](./secure-storage).
 - **Dev experience** — Metro `?platform=watchos` resolution, Fast
   Refresh over WebSocket, shake-to-reload, on-device error toast,
   `console.*` forwarded to Metro.

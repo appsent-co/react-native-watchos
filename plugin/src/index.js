@@ -4,6 +4,7 @@ const withWatchAutolinking = require('./withWatchAutolinking');
 const withWatchBundleScript = require('./withWatchBundleScript');
 const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
 const withWatchInfoPlist = require('./withWatchInfoPlist');
+const withWatchTargetConfig = require('./withWatchTargetConfig');
 
 /**
  * Expo Config Plugin for `@appsent-co/react-native-watchos`.
@@ -26,6 +27,9 @@ const withWatchInfoPlist = require('./withWatchInfoPlist');
  *      argument), the `NSAllowsLocalNetworking` ATS exception (plain-http
  *      bundle fetch from a physical watch) and `NSMotionUsageDescription`
  *      (shake-to-open dev menu).
+ *   5. `withWatchTargetConfig` — adds `"entitlements": {}` to
+ *      `targets/<name>/expo-target.config.json` when the key is missing, so
+ *      the simulator's Keychain (the `SecureStorage` module) works.
  *
  * Recommended app.json:
  *
@@ -40,7 +44,7 @@ const withWatchInfoPlist = require('./withWatchInfoPlist');
  *
  * And `targets/watch/expo-target.config.json`:
  *
- *   { "type": "watch" }
+ *   { "type": "watch", "entitlements": {} }
  *
  * Order matters: `@bacons/apple-targets` MUST run before this plugin so the
  * watch target exists in the pbxproj when we look it up.
@@ -75,6 +79,7 @@ const withReactNativeWatchOS = (config, opts) => {
     [withWatchAutolinking, { targetName, watchosDeploymentTarget }],
     [withWatchBundleScript, { targetName, bundleName, entryFile }],
     [withWatchInfoPlist, { targetName }],
+    [withWatchTargetConfig, { targetName }],
   ]);
 };
 

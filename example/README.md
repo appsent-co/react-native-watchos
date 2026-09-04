@@ -209,12 +209,38 @@ npx expo start --port 8082            # any port; 8081 is often held by another 
 cd ios
 xcodebuild -workspace watchosexample.xcworkspace -scheme watch -configuration Debug \
   -destination 'platform=watchOS Simulator,id=<watch UDID>' \
-  -derivedDataPath /tmp/dd CODE_SIGNING_ALLOWED=NO RNW_DEV_SERVER_PORT=8082 build
+  -derivedDataPath /tmp/dd RNW_DEV_SERVER_PORT=8082 build
 xcrun simctl install <watch UDID> /tmp/dd/Build/Products/Debug-watchsimulator/watch.app
 xcrun simctl launch  <watch UDID> com.appsent.watchosexample.watch
 ```
 
 Caveats that cost time the first time round:
+
+- **Leave code signing on for the simulator build.** Stage 1 built with
+  `CODE_SIGNING_ALLOWED=NO`; that works until something touches the
+  Keychain. The simulator's `securityd` requires an `application-identifier`
+  entitlement, which Xcode only synthesises (into the binary's
+  `__TEXT,__entitlements` section, as `<team>.<bundle id>`) when it ad-hoc
+  signs the app **and** the target has a `CODE_SIGN_ENTITLEMENTS` file. An
+  unsigned build, or a signed one whose watch target has no entitlements
+  file, fails every `SecItem*` call with `OSStatus -34018` (*A required
+  entitlement isn't present*) — that is what the runtime probe's two
+  `secure-storage-*` checks reported before
+  [`targets/watch/expo-target.config.json`](targets/watch/expo-target.config.json)
+  gained `"entitlements": {}` (an empty dict is enough; `@bacons/apple-targets`
+  writes `generated.entitlements` from it and wires `CODE_SIGN_ENTITLEMENTS`).
+  `npx react-native-watchos init` now writes that key up front and the
+  config plugin adds it to a JSON target config that lacks it (effective on
+  the next prebuild — `@bacons/apple-targets` reads the file before any
+  plugin mod runs), and a `-34018` rejection now names the fix. Ad-hoc
+  simulator signing needs no certificate or profile, so dropping the
+  `CODE_SIGNING_ALLOWED=NO` override costs nothing. The unsigned device
+  *link check* further down is unaffected.
+- **A relaunch may serve a stale evaluation.** `simctl terminate` +
+  `launch` normally re-fetches the bundle, but once a relaunch was observed
+  running the previous one. `simctl uninstall` + `install` + `launch`
+  always forces a fresh fetch — do that before concluding anything about a
+  JS-only edit.
 
 - **Port.** The Stage 1 runs on the reference Mac used `--port 8082` and
   `RNW_DEV_SERVER_PORT=8082` because 8081 was held by another app's Metro.
@@ -246,14 +272,17 @@ Caveats that cost time the first time round:
   fresh `pod install` (no `.last_build_configuration`) succeeds first time.
 - **Driver package entry on the watch.** The demo also `require`s
   `@fireflydb/op-sqlite-driver` itself (guarded) and reports the outcome as
-  `driverEntry=`. Metro does resolve it to the driver's
-  `src/index.watchos.ts` (the served bundle contains `index.watchos.ts` and
-  neither `src/index.ts` nor `src/polyfill.ts`), but that entry pulls in
-  `@fireflydb/core`, which constructs `TextDecoder`/`TextEncoder` at module
-  scope, and this runtime has no `TextDecoder` — so evaluation currently
-  fails with `Property 'TextDecoder' doesn't exist` (plan gap G7, Stage 2).
-  Until the runtime provides it, the canary falls back to the TurboModule
-  spec (`src/NativeFireflyClient`) for `getLibraryPath`/`getEntryPoint`.
+  `driverEntry=`. Metro resolves it to the driver's `src/index.watchos.ts`
+  (the served bundle contains `index.watchos.ts` and neither `src/index.ts`
+  nor `src/polyfill.ts`), and that entry pulls in `@fireflydb/core`, which
+  constructs `TextDecoder`s at module scope. Before Stage 2 the runtime had
+  no `TextDecoder`, so evaluation failed with `Property 'TextDecoder'
+  doesn't exist` and the canary fell back to the TurboModule spec
+  (`src/NativeFireflyClient`) for `getLibraryPath`/`getEntryPoint`. The
+  runtime now installs it (see the runtime probe below) and the line reads
+  `driverEntry=ok (index.watchos.ts)` — the `.watchos.ts` entry is
+  identified by its `crypto.getRandomValues` guard, which the demo makes
+  observable by hiding the global for the duration of one call.
 - **`getLibraryPath` / `getEntryPoint` are not yet a published driver
   API.** `@fireflydb/op-sqlite-driver@1.0.18` (fireflydb `develop`
   `c01c37b`, the exact release) only exposes them through the TurboModule
@@ -263,12 +292,11 @@ Caveats that cost time the first time round:
   `pnpm-workspace.yaml`), which is a *consumer-side* stopgap: the same
   diff applies cleanly to `fireflydb/sdk/typescript/packages/op-sqlite`
   (`git apply --check` passes) and is the change to land there as 1.0.19.
-  Two consequences to keep in mind: (1) on the watch the patched entry
-  cannot evaluate until G7 above is fixed, so today the demo still ends
-  up on the deep import (`driverEntry=eval failed: Property 'TextDecoder'
-  doesn't exist`) and the patch buys nothing at runtime yet; (2) a
-  consumer on yarn 1.22 (sweepy) has no `patchedDependencies` — see the
-  Stage 4 checklist below.
+  Two consequences to keep in mind: (1) the patched entry now evaluates
+  on the watch (Stage 2), so the demo takes `getLibraryPath` /
+  `getEntryPoint` from the package entry and the deep import is only the
+  fallback; (2) a consumer on yarn 1.22 (sweepy) has no
+  `patchedDependencies` — see the Stage 4 checklist below.
 
 ### Stage 4 checklist (what a consumer app such as sweepy must carry)
 
@@ -291,14 +319,37 @@ automatically with `npx react-native-watchos init` + `expo prebuild`:
    `patches/@fireflydb__op-sqlite-driver@1.0.18.patch`, apply the same
    patch with `patch-package` (yarn has no `patchedDependencies`), or keep
    deep-importing `@fireflydb/op-sqlite-driver/src/NativeFireflyClient`
-   for `getLibraryPath` / `getEntryPoint`. None of the three matters until
-   G7 lets `src/index.watchos.ts` evaluate on the watch.
-4. **G7** (`TextDecoder` / `TextEncoder` on the watch runtime) — owned by
-   `@appsent-co/react-native-watchos`, Stage 2.
+   for `getLibraryPath` / `getEntryPoint`.
+4. **`@appsent-co/react-native-watchos` at a version whose runtime carries
+   the Stage 2 globals** (`crypto.getRandomValues`, `TextDecoder`,
+   `Symbol.asyncIterator`, `queueMicrotask`, the rewritten `WebSocket`) and
+   the `SecureStorage` module — everything `@fireflydb/core` needs, listed
+   in [`docs/docs/runtime-globals.md`](../docs/docs/runtime-globals.md) and
+   asserted by the runtime probe below. `@fireflydb/core` constructs its
+   `TextDecoder`s at module scope, so a watch entry that imports the SDK
+   before `/renderer` or `/dev-support` should import
+   `@appsent-co/react-native-watchos/polyfills` first.
 5. **`@appsent-co/react-native-watchos` at a version whose config plugin
    writes the Info.plist keys** (`RNWDevServerHost` / `RNWDevServerPort`,
    `NSAllowsLocalNetworking`). Older versions leave the scaffolded watch
    target on a hard-coded `127.0.0.1:8081` and refuse the LAN bundle fetch.
+6. **An entitlements file on the watch target** (`"entitlements": {}` in
+   `targets/watch/expo-target.config.json` at minimum) so the simulator
+   build carries `application-identifier` and the Keychain-backed
+   `SecureStorage` works there — see the recipe caveats above. `init` and
+   the config plugin write the key for a JSON target config (the plugin's
+   addition applies from the next prebuild); a `.js` target config needs
+   it by hand. A device build gets the entitlement from its provisioning
+   profile regardless.
+7. **A `SecureStorageDriver` over `SecureStorage`** for the device seed
+   (the adapter is in
+   [`docs/docs/secure-storage.md`](../docs/docs/secure-storage.md) and the
+   runtime probe's `device-key-keychain` runs a verbatim copy of it), and
+   the plan's "wipe the database on `reset_tokens`" rule extended to
+   `removeItem('fireflydb.device.seed')`: the Keychain item outlives an
+   uninstall (observed on the simulator, see the runtime probe), so a
+   reinstall would otherwise come back as the *same* FireflyDB peer with
+   an empty database.
 
 ### Device build (watchOS SDK)
 
@@ -378,3 +429,205 @@ xcodebuild ... -destination 'generic/platform=watchOS' -xcconfig /tmp/arm64_32.x
    slice) and once with the `arm64_32` xcconfig above so the ILP32 slice is
    also exercised. Record both `canary=` values; libfirefly's `arm64_32`
    build is a tier-3 Rust target and is the more likely one to misbehave.
+
+## WebSocket conformance demo (FireflyDB Stage 2)
+
+`src/demos/WebSocketDemo.tsx` is the acceptance test for the watch runtime's
+`WebSocket` global (`apple/Sources/ReactNativeWatchOSCxx/RNWWebSocket.mm`,
+documented in [`docs/docs/runtime-globals.md`](../docs/docs/runtime-globals.md)).
+It is written against exactly the surface `@fireflydb/core`'s `DomWsConn` /
+`awaitWsOpen` / `RNWebSocketDriver` and `@fireflydb/web`'s
+`WebWebSocketDriver` touch, and its `sdk-*` checks (`sdk-domwsconn`,
+`sdk-rnwebsocketdriver`, `sdk-wsCloseError`, `sdk-backoff-4013`) run a
+verbatim copy of `DomWsConn` + `WsRecvQueue` + `RNWebSocketDriver`, so a
+green run means both SDK drivers work on the watch unchanged —
+`RNWebSocketDriver` is the one `@fireflydb/op-sqlite-driver` composes by
+default on its watch entry, and it carries the JWT in React Native's
+`new WebSocket(url, protocols, { headers })` argument. It mounts at app
+launch like every gallery demo, so the result shows up in Metro without
+navigating.
+
+`scripts/ws-echo-server.js` is the fixture it drives (Node `ws`, an example
+devDependency). Paths: `/echo` (text + binary echo, selects the **first**
+offered subprotocol, the relay's rule), `/noproto` (selects none),
+`/headers` (selects the first offer, then sends the upgrade request's
+headers back as one binary JSON frame — what the server actually saw),
+`/close1013` and `/close?code=&reason=&delay=` (server-initiated closes),
+`/drop` (TCP destroyed with no close frame → unclean 1006), `/reject` (401 on
+the upgrade). Over plain HTTP it serves `GET /` (the ArrayBuffer check) and
+`POST /log` (the demo's transcript).
+
+```sh
+cd example
+node scripts/ws-echo-server.js            # port 8099, leave running
+npx expo start --port 8092 > /tmp/metro.log 2>&1 &
+cd ios && xcodebuild -workspace watchosexample.xcworkspace -scheme watch \
+  -configuration Debug -destination 'platform=watchOS Simulator,id=<watch UDID>' \
+  -derivedDataPath /tmp/dd CODE_SIGNING_ALLOWED=NO RNW_DEV_SERVER_PORT=8092 build
+xcrun simctl install <watch UDID> /tmp/dd/Build/Products/Debug-watchsimulator/watch.app
+xcrun simctl launch  <watch UDID> com.appsent.watchosexample.watch
+grep 'WebSocketDemo' /tmp/metro.log   # or the echo server's own stdout
+```
+
+Each check prints one greppable line — `[WebSocketDemo] PASS|FAIL <name>:
+<detail>` — followed by `[WebSocketDemo] DONE pass=<n> fail=<m>`. A check
+that needs the public internet (`tls-public`, against
+`wss://echo.websocket.org`) reports `WARN` instead of `FAIL` when it cannot
+connect and is left out of the gate. The demo reports through two channels
+because the `console.*` pipe only reaches the Metro that served the bundle
+(a Release build, a physical watch, or a Metro restarted under a running app
+loses it), and Metro prints the lines in arrival order rather than emission
+order: the fixture server's stdout (`watch | …` lines, from one `POST /log`
+at the end) always has the ordered transcript.
+
+Touching `RNWWebSocket.mm` means rebuilding the prebuilt
+`ReactNativeWatchOSCxx.xcframework` (`pnpm build:xcframework` at the repo
+root — or, with the Hermes / JSI / reactcommon slices already in `build/`,
+just steps 3–5 of `scripts/build-xcframework.sh`) before the app build picks
+it up; the `[CP] Copy XCFrameworks` phase copies it on every build.
+
+Status on the rewritten shim (Apple Watch Series 11 42mm simulator, watchOS
+26.4): **`DONE pass=38 fail=0`** — every WebSocket check passes, including
+the four SDK checks, `binary-echo-8mib`, `close-1006-drop` /
+`close-follows-error` (a `close` after every transport failure),
+`microtask-drain` (`event,micro,timer`), `runtime-queueMicrotask` (it
+reported `pass=30 fail=1` before `polyfills` installed `queueMicrotask`),
+and the checks added after review: `headers-forwarded` /
+`headers-with-protocols` / `headers-invalid` (React Native's `{ headers }`
+argument reaches the upgrade request, `Authorization` included, the
+handshake fields URLSession owns are dropped, CRLF and non-token names are
+refused), `sdk-rnwebsocketdriver` (the SDK's default RN driver, verbatim,
+sees its bearer on the server side), `text-echo-nul` (a text frame with an
+embedded U+0000 is byte-exact — the receive path used to stop at the first
+NUL) and `close-1013` / `close-1012-1014` / `sdk-wsCloseError` (see
+below). Baseline on the pre-rewrite shim was `pass=7 fail=22`.
+
+One close-code subtlety is worth knowing because the relay depends on it.
+`URLSessionWebSocketTask.CloseCode` has no case for 1012–1014, and 1013 is
+`WS_CLOSE_TRY_AGAIN_LATER`, the relay's back-off signal. URLSession reports
+those three as 1005 — but hands the *raw close-frame payload* (the two-byte
+code, then the reason) over as the reason: measured on macOS and on the
+watch, `1013 "slow down"` arrives as `03 f5 73 6c 6f 77 20 64 6f 77 6e`,
+while a genuine no-code close arrives as 1005 with an empty reason and every
+code in the enum arrives with its reason only. Since RFC 6455 only ever
+puts a reason after a code, "1005 with bytes" is unambiguous and the shim
+decodes the real code and reason back. `close-1013`, `close-1012-1014`
+(1012, 1014, a 1013 with no reason and one with a NUL in the reason) and
+`sdk-wsCloseError` (a 1013 through the SDK's own `DomWsConn`, rejecting
+`recv()` with `WsCloseError(1013, 'slow down')`, which is exactly what
+`isTryAgainLater` tests) pin this; `close-1011-reason` and
+`sdk-backoff-4013` cover the ordinary path. An earlier version of the shim
+decoded the reason through an `NSString` round trip, which returned nil on
+the `0xf5` byte — so the same close read as `1005 reason=""` and was
+recorded as a deviation. It is not one.
+
+## Runtime probe (FireflyDB Stage 2 regression check)
+
+`src/demos/RuntimeProbeDemo.tsx` asserts every global the FireflyDB JS SDK
+needs from the watch runtime, in the exact shape the SDK uses it (each
+check names the `@fireflydb/core` source line it protects), plus the
+package's `SecureStorage` module. It mounts at launch like every gallery
+demo and prints one line per check:
+
+```
+[RuntimeProbe] PASS <name>: <detail>
+[RuntimeProbe] FAIL <name>: <detail>
+[RuntimeProbe] DONE pass=<n> fail=<m>
+```
+
+Groups: `crypto` (`getRandomValues` fills in place and returns the same
+object, honours `byteOffset`, fills `Uint32Array` / `BigInt64Array`, the
+65536-byte quota and the `TypeMismatchError` / `QuotaExceededError` names,
+entropy across draws, v4 `randomUUID`); base64 (`atob` / `btoa` over the
+SDK's 0x8000-chunk fallback at 32773 bytes, invalid input, the 43-char
+base64url peer id, which `base64.ts` branch is live); text (`TextEncoder`
+bytes, `TextDecoder` constructed with `{fatal: true}` as the SDK does at
+module scope, astral round trip, five invalid sequences under `fatal`,
+WHATWG maximal-subpart replacement under lossy, BOM, every input type,
+label normalisation, `{stream: true}`); binary / numeric (`DataView`
+BigInt64 round trip, BigInt exactness above 2^53); scheduling (timers,
+`queueMicrotask` ordering, `setImmediate` staying a macrotask,
+`Symbol.asyncIterator`, `for await` over the SDK's `WsRecvQueue` shape,
+the unhandled-rejection tracker); platform (`WebSocket` presence —
+conformance is the WebSocket demo's job — `SecureStorage` round trip with
+overwrite / remove / bad-base64 rejection, a `secure-storage-persist`
+marker that reports `fresh` or `persisted`, and finally
+`require('@fireflydb/op-sqlite-driver')`, `require('@fireflydb/core')`,
+`loadOrCreateDeviceKey` over the SDK's in-memory store,
+`device-key-keychain` — `loadOrCreateDeviceKey` over the Keychain-backed
+adapter from `docs/docs/secure-storage.md`, asserting the peer identity
+survives a relaunch — and `client-init`, the gate proper:
+`createFireflyClient(...)` composed the way a consumer composes it (the
+driver's watch entry over an app-owned op-sqlite handle, the same Keychain
+adapter, a developer pubkey and one bundled signed migration) and
+`await client.init()` offline, asserting `client.peerID` derives from the
+Keychain seed, `_firefly_config.developer_pubkey` is pinned, the migration
+chain head is 1 and the migration's table exists, and that a second client
+over the same handle re-inits without re-applying. The SDK only consumes
+signed envelopes, so the probe packs and signs its own one-envelope chain
+(`FMIG` header + `signDeviceProof`, the Ed25519 primitive libfirefly
+verifies) under a fixed developer key; the DB file is deleted at the end so
+every launch runs the full path on a fresh database. `@fireflydb/core` is an
+explicit dependency here because an unresolvable `require` breaks the whole
+bundle at build time).
+
+Status (Apple Watch Series 11 42mm simulator, watchOS 26.4, same recipe as
+above): **`DONE pass=40 fail=0`**, `[FireflyDemo] canary=33
+driverEntry=ok (index.watchos.ts)`, `[WebSocketDemo] DONE pass=38
+fail=0`, zero `watchOS ERR` lines. `client-init` printed `init() ok in
+14ms: peerID=9Qj0UPUm… (Keychain seed agrees), developer_pubkey pinned,
+migration seq 1 applied (rnw_probe_notes created + tracked), re-init over
+the same handle idempotent` on a fresh install and again on a relaunch —
+the same peer `device-key-keychain` reports, so the client really did take
+its key from the Keychain adapter — which closes the Stage 2 gate's second
+half (`createFireflyClient(...).init()` offline) on the simulator; the
+`init()` also arms the SDK's change-listener GC nudger, i.e. the
+`FireflyClient` TurboModule's `addChangeListener` + `onFireflyChange` event
+emitter work on this runtime. `secure-storage-persist` reported
+`fresh` on the first launch after install, `persisted` on a relaunch,
+`persisted` after `simctl shutdown` + `boot` (the
+`AfterFirstUnlockThisDeviceOnly` item survives a reboot) **and
+`persisted` after `simctl uninstall` + `install`** — on this OS a Keychain
+item outlives the app, so a consumer that wants a reinstall to be a new
+peer must `removeItem` the seed itself. `device-key` (an in-memory store)
+printed a different `peerID` on every launch (`w6FN…`, `Sa0u…`, `T4g5…`,
+`1iJF…`), which is what a stubbed or zero-filling `SecRandomCopyBytes`
+could not do; `device-key-keychain` — `loadOrCreateDeviceKey` through a
+verbatim copy of the docs' Keychain-backed `WatchSecureStorage` adapter,
+under a probe-scoped key — printed `fresh peerID=PJaWPytX…` on the first
+launch and `persisted peerID=PJaWPytX…` on a reinstall and on a relaunch,
+with the Keychain bytes equal to the seed the SDK holds and `delete`
+yielding a fresh peer: the Stage 2 gate's "device key generated and
+persisted", through the adapter a consumer will actually copy. Before the
+Stage 2 changes the same probe would stop at `driver-entry` with
+`Property 'TextDecoder' doesn't exist`, and with an unsigned build the two
+`secure-storage-*` checks fail with `OSStatus -34018` (recipe caveats
+above; the rejection message now names the fix).
+
+Fast Refresh full reloads with sockets in flight were also exercised on
+this build (and repeated after the native hosts learned to release their
+JSI handles on the JS queue only — see [Runtime globals →
+Scheduling](../docs/docs/runtime-globals.md#scheduling)): six fresh
+launches each force-reloaded 3–6 s in (touching the
+bundle entry, which has no root boundary, so Metro's update ends in
+`performFullRefresh` → `__RNW_RELOAD` → a new `RNWHermesHost` while the
+old one — HMR socket, demo sockets, XHR, timers — is torn down on a
+utility queue), twelve full reloads in all, every process surviving with
+its PID and no crash report. The runtime pointer every native host copies
+now lives in a shared cell the host clears on the JS queue ahead of
+destroying the runtime, so a callback queued behind the teardown no-ops
+instead of draining microtasks on freed memory. The one `watchOS ERR` a
+reload does print is `Failed to install op-sqlite … JSI bindings`: op-sqlite
+refuses to install on a second runtime in the same process (the plan's
+dev-only gap G12), so the demos do not remount after a reload — relaunch
+the app when touching DB code.
+
+Touching `RNWCrypto.mm`, `RNWTextDecoder.mm` or `RNWHermesHost.mm` means
+rebuilding the prebuilt `ReactNativeWatchOSCxx.xcframework` (see the
+WebSocket section); `RNWSecureStorage.mm` is compiled from source by the
+`RNWatchConnectivity` pod, so `expo prebuild --clean` + a normal build
+picks it up. Not covered by a simulator run: the Keychain and
+`SecRandomCopyBytes` on a physical watch (`secure-storage-*` and
+`grv-entropy` are the two checks whose device behaviour a simulator cannot
+prove), so the probe is the thing to run first on a paired watch.
+

@@ -12,6 +12,7 @@
   "dependencies": {
     "@appsent-co/react-native-watchos": "workspace:*",
     "@bacons/apple-targets": "^4.0.7",
+    "@fireflydb/core": "1.0.18",
     "@fireflydb/op-sqlite-driver": "1.0.18",
     "@op-engineering/op-sqlite": "^16.1.1",
     "expo": "~54.0.33",
@@ -24,7 +25,9 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "^19.1.0",
-    "@types/react-reconciler": "^0.28.9"
+    "@types/react-reconciler": "^0.28.9",
+    "@types/ws": "^8.18.1",
+    "ws": "^8.21.3"
   },
   "engines": {
     "node": ">=20"

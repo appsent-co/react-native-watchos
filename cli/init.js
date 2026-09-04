@@ -5,6 +5,9 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const { ensureWatchInfoPlist } = require('../plugin/src/withWatchInfoPlist');
+const {
+  ensureWatchTargetEntitlements,
+} = require('../plugin/src/withWatchTargetConfig');
 
 const TEMPLATES = path.join(__dirname, '..', 'plugin', 'templates');
 const ENTRY_NAMES = [
@@ -59,6 +62,7 @@ async function main() {
   const targetName = path.basename(created);
   writeContentView(created);
   writeInfoPlistKeys(created);
+  writeTargetEntitlements(created);
   writeEntryFile(cwd);
   patchAppJson(cwd, targetName);
 
@@ -132,6 +136,18 @@ function writeInfoPlistKeys(targetDir) {
     console.log(`› Added ${added.join(', ')} to ${rel}`);
   } else {
     console.log(`› ${rel} already has the runtime keys — leaving untouched.`);
+  }
+}
+
+/** @param {string} targetDir */
+function writeTargetEntitlements(targetDir) {
+  const { path: configPath, added } = ensureWatchTargetEntitlements(targetDir);
+  if (!configPath) return;
+  const rel = path.relative(process.cwd(), configPath);
+  if (added) {
+    console.log(`› Added "entitlements": {} to ${rel} (simulator Keychain)`);
+  } else {
+    console.log(`› ${rel} already declares entitlements — leaving untouched.`);
   }
 }
 

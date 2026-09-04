@@ -13,10 +13,12 @@ build-time glue:
 - Lets you override the watchOS deployment target.
 - Installs the Release bundle build phase
   (`expo export:embed --platform watchos`).
-- Runs codegen for the `RNWatchConnectivity` spec.
+- Runs codegen for the package's TurboModule specs (`src/specs/`: WatchConnectivity, SecureStorage) and for the app's own.
 - Adds the Info.plist keys the runtime's DEBUG path reads to
   `targets/<name>/Info.plist` when they are missing (see
   [Dev-server endpoint](#dev-server-endpoint) below).
+- Adds `"entitlements": {}` to `targets/<name>/expo-target.config.json`
+  when the key is missing (see [Target entitlements](#target-entitlements)).
 
 The plugin is registered automatically by `npx react-native-watchos init`
 into your `app.json` *after* `@bacons/apple-targets`. The plugin name
@@ -62,3 +64,23 @@ whichever (host, port) the bundle was fetched from, so it lands in that
 Metro's terminal. Explicit `host:` / `port:` arguments to
 `defaultBundleURL` still take precedence over the plist, and Release
 builds ignore all of this (they load the embedded `main.jsbundle`).
+
+## Target entitlements
+
+The simulator's Keychain — and with it the
+[Secure Storage](./secure-storage) module — needs the watch app to carry
+an `application-identifier` entitlement, which Xcode only synthesises when
+the target has an entitlements file. `@bacons/apple-targets` writes one
+from the `entitlements` key of `targets/<name>/expo-target.config.json`,
+and an empty object is enough:
+
+```json
+{ "type": "watch", "entitlements": {} }
+```
+
+`npx react-native-watchos init` writes the key when it scaffolds the
+target. The config plugin adds it to a JSON target config that lacks it,
+but `@bacons/apple-targets` has already read the file by the time any
+plugin mod runs, so that addition applies on the **next** `expo prebuild`
+(the plugin prints a line saying so). A `expo-target.config.js` is never
+rewritten — add the key there yourself.

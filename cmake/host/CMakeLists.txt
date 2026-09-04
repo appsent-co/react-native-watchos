@@ -110,6 +110,8 @@ add_library(RNWHost STATIC
     "${SOURCES_DIR}/RNWUIManager.mm"
     "${SOURCES_DIR}/RNWWebSocket.mm"
     "${SOURCES_DIR}/RNWXHR.mm"
+    "${SOURCES_DIR}/RNWCrypto.mm"
+    "${SOURCES_DIR}/RNWTextDecoder.mm"
     "${SOURCES_DIR}/RNWTurboModuleRegistry.mm"
     # Compiled verbatim from node_modules; dead-code branches are
     # satisfied by stub headers + `RCTCompatStubs.mm`.

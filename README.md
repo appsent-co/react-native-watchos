@@ -59,7 +59,13 @@ digital crown rotation and sensory feedback. See
 [`src/modifiers/`](./src/modifiers/) for the full surface.
 
 **JS runtime** — Hermes embedded on watchOS via JSI, with `console.*`,
-timers, `fetch` / `XMLHttpRequest`, and `WebSocket` installed.
+timers, `queueMicrotask`, `fetch` / `XMLHttpRequest`, a WHATWG `WebSocket`
+(subprotocols, React Native's `{ headers }` argument, binary frames as
+`ArrayBuffer`, `addEventListener`, `close(code, reason)`),
+`crypto.getRandomValues` / `randomUUID`
+(`SecRandomCopyBytes`), `TextDecoder` and `Symbol.asyncIterator`
+installed; `atob` / `btoa`, `TextEncoder` and `BigInt` come from Hermes
+itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
 
 **TurboModules** — Create native modules in Swift / Obj-C++ and call
 them from JS with full codegen support.
@@ -67,6 +73,11 @@ them from JS with full codegen support.
 **Watch Connectivity** — Bidirectional messaging, user-info / app
 context sync, reachability and activation state, binary payloads —
 exposed from [`src/watchConnectivity/`](./src/watchConnectivity/).
+
+**Secure Storage** — Keychain-backed `getItem` / `setItem` / `removeItem`
+for small secrets (a device key, a token), scoped to the app and never
+synced — exposed from [`src/secureStorage/`](./src/secureStorage/) and
+documented in [`docs/docs/secure-storage.md`](./docs/docs/secure-storage.md).
 
 **Dev experience** — Metro `?platform=watchos` resolution via
 `withWatchosMetro`, Fast Refresh over WebSocket, shake-to-reload

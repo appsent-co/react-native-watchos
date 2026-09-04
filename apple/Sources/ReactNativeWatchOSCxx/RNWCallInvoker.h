@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdio>
 #include <dispatch/dispatch.h>
+#include <memory>
 
 namespace facebook::react {
 
@@ -19,12 +20,26 @@ namespace facebook::react {
 // The queue is tagged with `dispatch_queue_set_specific(queue, key, …)` so
 // `dispatch_get_specific(key)` answers "am I on the JS queue?" — the sync
 // variants use this to avoid self-deadlock when called re-entrantly.
+//
+// Lifetime: this struct is copied by value into every host that calls back
+// into JS, and those hosts outlive the runtime on a Fast Refresh full reload.
+// The runtime pointer therefore lives in one cell shared by every copy, and
+// every hop re-reads it inside the dispatched block: the host clears the cell
+// on the JS queue ahead of destroying the runtime, so a block queued behind
+// the teardown no-ops instead of touching freed memory.
 struct RNWJSQueue {
   dispatch_queue_t queue;
   const void* key;
   // Settable post-construction: the runtime is built ON the queue, after
-  // this struct exists. Null before installation → all `*OnJS` helpers no-op.
-  jsi::Runtime* runtime = nullptr;
+  // this struct exists. Null before installation (and again after
+  // `invalidate()`) → all `*OnJS` helpers no-op.
+  std::shared_ptr<std::atomic<jsi::Runtime*>> runtimeCell =
+      std::make_shared<std::atomic<jsi::Runtime*>>(nullptr);
+
+  void setRuntime(jsi::Runtime* rt) const noexcept { runtimeCell->store(rt); }
+  // Call on the JS queue, before the runtime is destroyed.
+  void invalidate() const noexcept { runtimeCell->store(nullptr); }
+  jsi::Runtime* runtime() const noexcept { return runtimeCell->load(); }
 
   bool isCurrent() const noexcept {
     return dispatch_get_specific(key) != nullptr;
@@ -44,9 +59,11 @@ struct RNWJSQueue {
   }
 
   void runOnJS(void (^block)(jsi::Runtime& rt)) const noexcept {
-    jsi::Runtime* rt = runtime;
-    if (block == nil || rt == nullptr) return;
+    if (block == nil || runtime() == nullptr) return;
+    auto cell = runtimeCell;
     dispatch_async(queue, ^{
+      jsi::Runtime* rt = cell->load();
+      if (rt == nullptr) return;
       block(*rt);
       rt->drainMicrotasks();
     });
@@ -55,12 +72,14 @@ struct RNWJSQueue {
   // Backs setTimeout.
   void runOnJSAfter(int64_t delayNs,
                     void (^block)(jsi::Runtime& rt)) const noexcept {
-    jsi::Runtime* rt = runtime;
-    if (block == nil || rt == nullptr) return;
+    if (block == nil || runtime() == nullptr) return;
+    auto cell = runtimeCell;
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, delayNs),
         queue,
         ^{
+          jsi::Runtime* rt = cell->load();
+          if (rt == nullptr) return;
           block(*rt);
           rt->drainMicrotasks();
         });
@@ -68,13 +87,14 @@ struct RNWJSQueue {
 
   // Re-entrant from the JS queue runs inline.
   void runOnJSSync(void (^block)(jsi::Runtime& rt)) const {
-    jsi::Runtime* rt = runtime;
-    if (block == nil || rt == nullptr) return;
+    if (block == nil || runtime() == nullptr) return;
     if (isCurrent()) {
-      block(*rt);
-      rt->drainMicrotasks();
+      invokeOnJS(block);
     } else {
+      auto cell = runtimeCell;
       dispatch_sync(queue, ^{
+        jsi::Runtime* rt = cell->load();
+        if (rt == nullptr) return;
         block(*rt);
         rt->drainMicrotasks();
       });
@@ -84,10 +104,27 @@ struct RNWJSQueue {
   // Caller is already on the JS queue (e.g. a GCD dispatch source firing on
   // this queue) — invoke inline and drain, no re-dispatch.
   void invokeOnJS(void (^block)(jsi::Runtime& rt)) const noexcept {
-    jsi::Runtime* rt = runtime;
+    jsi::Runtime* rt = runtime();
     if (block == nil || rt == nullptr) return;
     block(*rt);
     rt->drainMicrotasks();
+  }
+
+  // Destroys `owner` on the JS queue, and only while the runtime is still
+  // there. A native host whose last reference is dropped off the JS queue
+  // (a URLSession completion outliving its JS wrapper) hands its JSI
+  // handles here: releasing a handle decrements a counter in the runtime's
+  // handle table, which is freed with the runtime, so a handle that outlives
+  // the runtime is leaked on purpose.
+  void destroyOnJS(std::shared_ptr<void> owner) const noexcept {
+    if (!owner) return;
+    auto cell = runtimeCell;
+    auto* box = new std::shared_ptr<void>(std::move(owner));
+    dispatch_async(queue, ^{
+      if (cell->load() != nullptr) {
+        delete box;
+      }
+    });
   }
 };
 
