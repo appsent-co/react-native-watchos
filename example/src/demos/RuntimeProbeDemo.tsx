@@ -205,28 +205,20 @@ function requireGuarded<T>(load: () => T | undefined, what: string): T {
 }
 
 // ---------------------------------------------------------------------------
-// DOC COPY — the `SecureStorageDriver` adapter from docs/docs/secure-storage.md,
-// verbatim. If this runs, what the docs hand a consumer runs.
+// SDK byte-store adapter using the public SecureStorage byte facade.
 // ---------------------------------------------------------------------------
 
 export class WatchSecureStorage implements SecureStorageDriver {
-  async get(key: string): Promise<Uint8Array | null> {
-    const raw = await SecureStorage.getItem(key);
-    if (raw === null) return null;
-    const bin = atob(raw);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
+  get(key: string): Promise<Uint8Array | null> {
+    return SecureStorage.getBytes(key);
   }
 
-  async set(key: string, value: Uint8Array): Promise<void> {
-    let bin = '';
-    for (let i = 0; i < value.length; i++) bin += String.fromCharCode(value[i]!);
-    await SecureStorage.setItem(key, btoa(bin));
+  set(key: string, value: Uint8Array): Promise<void> {
+    return SecureStorage.setBytes(key, value);
   }
 
-  async delete(key: string): Promise<void> {
-    await SecureStorage.removeItem(key);
+  delete(key: string): Promise<void> {
+    return SecureStorage.removeItem(key);
   }
 }
 
@@ -924,7 +916,7 @@ const CHECKS: readonly [string, Check][] = [
     'device-key-keychain',
     async () => {
       // The Stage 2 gate proper: loadOrCreateDeviceKey over the documented
-      // Keychain adapter (DOC COPY above) — 32-byte seed → base64 → SecItem
+      // Keychain byte facade adapter above — 32-byte seed → bridge → SecItem
       // → base64 → bytes → the same peerID. A relaunch reports `persisted`
       // with the peerID this launch created; `delete` yields a fresh peer.
       const entry = loadDriverEntry();

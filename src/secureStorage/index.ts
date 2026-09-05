@@ -1,18 +1,29 @@
-// Keychain-backed store for small secrets on the watch and, through the same
-// podspec, on the iOS host app. Values are base64 strings at the boundary
-// (codegen has no byte-array type); the stored item is the decoded bytes, in
-// a generic-password item scoped to the calling app and never synchronised.
-// Native: `apple/Sources/SecureStorage/`; docs: docs/docs/secure-storage.md.
-//
-//   import { SecureStorage } from '@appsent-co/react-native-watchos/secure-storage';
-//
-//   await SecureStorage.setItem('device.seed', btoa(binary));
-//   const b64 = await SecureStorage.getItem('device.seed'); // null when absent
-//   await SecureStorage.removeItem('device.seed');
-
 import NativeSecureStorage from '../specs/NativeSecureStorage';
 
+// Hermes and React Native provide these globals; this package has no DOM lib.
+declare function atob(value: string): string;
+declare function btoa(value: string): string;
+
 export const SecureStorage = {
+  /** Stored bytes, or `null` when the key is absent. */
+  async getBytes(key: string): Promise<Uint8Array | null> {
+    const value = await NativeSecureStorage.getItem(key);
+    if (value == null) return null;
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  },
+
+  /** Stores exactly the bytes in this view, including an empty view. */
+  async setBytes(key: string, value: Uint8Array): Promise<void> {
+    let binary = '';
+    for (let i = 0; i < value.length; i++) {
+      binary += String.fromCharCode(value[i]!);
+    }
+    await NativeSecureStorage.setItem(key, btoa(binary));
+  },
+
   /** base64 of the stored bytes, or `null` when the key is absent. */
   async getItem(key: string): Promise<string | null> {
     const value = await NativeSecureStorage.getItem(key);

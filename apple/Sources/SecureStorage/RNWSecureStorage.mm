@@ -6,17 +6,32 @@
 static NSString *const kRNWSecureStorageService =
     @"co.appsent.reactnativewatchos.securestorage";
 
-// No `kSecAttrAccessGroup`: the item lands in the app's default access group,
-// which is its own application identifier unless a `keychain-access-groups`
-// entitlement lists another group first (docs/docs/secure-storage.md). The
-// module cannot pin the private group itself because the entitlement is not
-// readable at runtime on watchOS.
-static NSMutableDictionary *RNWSecureStorageQuery(NSString *key)
+// watchOS has no SecTask entitlement lookup. Require the app to supply the
+// resolved signing access group rather than guess its App ID prefix. In
+// particular, an omitted group on a query searches ALL accessible groups.
+static NSMutableDictionary *RNWSecureStorageQuery(NSString *key,
+                                                 RCTPromiseRejectBlock reject)
 {
+    id group = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RNWSecureStorageAccessGroup"];
+    if (![group isKindOfClass:[NSString class]] || [group length] == 0 ||
+        [group containsString:@"$("] || [group containsString:@"${"] ||
+        [group hasPrefix:@"."] ||
+        ![group isEqualToString:[group stringByTrimmingCharactersInSet:
+                                [NSCharacterSet whitespaceAndNewlineCharacterSet]]]) {
+        reject(@"keychain_configuration_error",
+               @"Set RNWSecureStorageAccessGroup in the app's Info.plist to its "
+               @"existing Keychain access group. For a private app group use "
+               @"$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER), expanded by Xcode. "
+               @"Existing apps with Keychain Sharing must select the original "
+               @"default group to retain their values (docs/docs/secure-storage.md).",
+               nil);
+        return nil;
+    }
     return [@{
         (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecAttrService: kRNWSecureStorageService,
         (__bridge id)kSecAttrAccount: key,
+        (__bridge id)kSecAttrAccessGroup: group,
         (__bridge id)kSecAttrSynchronizable: @NO,
     } mutableCopy];
 }
@@ -31,7 +46,7 @@ static NSString *RNWSecureStorageStatusMessage(OSStatus status)
                          text.length > 0 ? [NSString stringWithFormat:@" (%@)", text] : @""];
     if (status == errSecMissingEntitlement) {
         message = [message stringByAppendingString:
-                   @" — the app has no application-identifier entitlement. On the "
+                   @" — check the configured access group and signing entitlements. On the "
                    @"simulator the watch target needs an entitlements file: "
                    @"`\"entitlements\": {}` in targets/<name>/expo-target.config.json, "
                    @"then `expo prebuild` (docs/docs/secure-storage.md, \"Simulator "
@@ -55,7 +70,8 @@ RCT_EXPORT_MODULE(RNWSecureStorage)
         resolve:(RCTPromiseResolveBlock)resolve
          reject:(RCTPromiseRejectBlock)reject
 {
-    NSMutableDictionary *query = RNWSecureStorageQuery(key);
+    NSMutableDictionary *query = RNWSecureStorageQuery(key, reject);
+    if (query == nil) return;
     query[(__bridge id)kSecReturnData] = @YES;
     query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
     CFTypeRef result = NULL;
@@ -82,10 +98,11 @@ RCT_EXPORT_MODULE(RNWSecureStorage)
         reject(@"invalid_base64", @"setItem value was not valid base64", nil);
         return;
     }
-    NSMutableDictionary *query = RNWSecureStorageQuery(key);
+    NSMutableDictionary *query = RNWSecureStorageQuery(key, reject);
+    if (query == nil) return;
     NSMutableDictionary *attributes = [query mutableCopy];
     attributes[(__bridge id)kSecValueData] = data;
-    // Readable while the app runs unattended after a reboot, never restored
+    // Readable unattended after the first unlock following reboot, never restored
     // onto another device.
     attributes[(__bridge id)kSecAttrAccessible] =
         (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
@@ -107,7 +124,9 @@ RCT_EXPORT_MODULE(RNWSecureStorage)
            resolve:(RCTPromiseResolveBlock)resolve
             reject:(RCTPromiseRejectBlock)reject
 {
-    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)RNWSecureStorageQuery(key));
+    NSMutableDictionary *query = RNWSecureStorageQuery(key, reject);
+    if (query == nil) return;
+    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
     if (status != errSecSuccess && status != errSecItemNotFound) {
         reject(@"keychain_error", RNWSecureStorageStatusMessage(status), nil);
         return;

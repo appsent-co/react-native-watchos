@@ -45,6 +45,7 @@
   "scripts": {
     "build:xcframework": "./scripts/build-xcframework.sh",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "clean": "del-cli build/xcframework example/ios",
     "docs": "pnpm --filter react-native-watchos-docs start",
     "docs:build": "pnpm --filter react-native-watchos-docs build",

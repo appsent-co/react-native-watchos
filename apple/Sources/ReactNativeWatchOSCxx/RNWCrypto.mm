@@ -2,6 +2,8 @@
 
 #import <Security/Security.h>
 
+#include "RNWBufferRange.h"
+
 namespace jsi = facebook::jsi;
 
 static const double kRNWFillRandomMaxBytes = 65536;
@@ -35,8 +37,8 @@ void rnwInstallCrypto(jsi::Runtime &rt) {
             }
             double off = offVal.getNumber();
             double len = lenVal.getNumber();
-            double size = static_cast<double>(buf.size(innerRt));
-            if (off < 0 || len < 0 || off + len > size) {
+            size_t byteOffset, byteLength;
+            if (!rnwBufferRange(off, len, buf.size(innerRt), byteOffset, byteLength)) {
                 throw jsi::JSError(innerRt, "__RNW_fillRandom: view out of bounds");
             }
             if (len > kRNWFillRandomMaxBytes) {
@@ -44,9 +46,9 @@ void rnwInstallCrypto(jsi::Runtime &rt) {
                     "__RNW_fillRandom: length exceeds 65536");
             }
             if (len > 0) {
-                uint8_t *base = buf.data(innerRt) + static_cast<size_t>(off);
+                uint8_t *base = buf.data(innerRt) + byteOffset;
                 OSStatus status = SecRandomCopyBytes(
-                    kSecRandomDefault, static_cast<size_t>(len), base);
+                    kSecRandomDefault, byteLength, base);
                 if (status != errSecSuccess) {
                     throw jsi::JSError(innerRt,
                         "__RNW_fillRandom: SecRandomCopyBytes failed (OSStatus " +

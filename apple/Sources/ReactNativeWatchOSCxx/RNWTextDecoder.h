@@ -9,9 +9,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Install a WHATWG `TextDecoder` (UTF-8 only) on `globalThis`, the
 /// counterpart of the `TextEncoder` Hermes ships natively. Native is one
-/// primitive, `__RNW_utf8Decode(buffer, byteOffset, byteLength, fatal)`,
-/// returning the string or `null` when `fatal` is set and the input is not
-/// valid UTF-8; the `TextDecoder` class itself is a JS shim evaluated at
+/// factory, `__RNW_createUtf8Decoder(fatal, ignoreBOM)`, returning a native
+/// decode function that owns UTF-8 streaming and BOM state. The decode function
+/// returns a string or `null` on fatal malformed input. The class is JS evaluated at
 /// install time, so it exists before any bundle runs. Surface and
 /// deviations: docs/docs/runtime-globals.md.
 void rnwInstallTextDecoder(facebook::jsi::Runtime &rt);

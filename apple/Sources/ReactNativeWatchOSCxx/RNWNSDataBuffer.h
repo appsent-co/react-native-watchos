@@ -6,16 +6,16 @@
 
 #import <jsi/jsi.h>
 
-/// Zero-copy `jsi::ArrayBuffer` storage backed by an `NSData`, retained for
+/// Owned mutable `jsi::ArrayBuffer` storage copied from `NSData`, retained for
 /// as long as Hermes keeps the ArrayBuffer alive. Construct the
 /// `jsi::ArrayBuffer` on the JS queue only.
 class RNWNSDataBuffer : public facebook::jsi::MutableBuffer {
 public:
-    explicit RNWNSDataBuffer(NSData *data) : data_(data) {}
+    explicit RNWNSDataBuffer(NSData *data) : data_([data mutableCopy]) {}
     size_t size() const override { return data_.length; }
     uint8_t *data() override {
-        return reinterpret_cast<uint8_t *>(const_cast<void *>(data_.bytes));
+        return reinterpret_cast<uint8_t *>(data_.mutableBytes);
     }
 private:
-    NSData *data_;
+    NSMutableData *data_;
 };

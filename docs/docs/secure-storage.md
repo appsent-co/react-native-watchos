@@ -13,82 +13,79 @@ an OAuth token blob. It is the second native module shipped by
 the iOS host app and in the watchOS app**; each side stores into its own
 app's Keychain.
 
-Values are base64 strings at the API boundary (codegen has no byte-array
-type). What lands in the Keychain is the decoded bytes, as a
-generic-password item scoped to the calling app.
-
-## Import
-
-```ts
-import { SecureStorage } from '@appsent-co/react-native-watchos/secure-storage';
-```
+Use `Uint8Array` through `getBytes` / `setBytes`, or the compatible base64
+methods. The native bridge carries base64; the Keychain stores decoded bytes.
 
 ## Usage
 
 ```ts
-// Store 32 bytes under a key.
+import { SecureStorage } from '@appsent-co/react-native-watchos/secure-storage';
+
 const seed = crypto.getRandomValues(new Uint8Array(32));
-let bin = '';
-for (const b of seed) bin += String.fromCharCode(b);
-await SecureStorage.setItem('device.seed', btoa(bin));
-
-// Read them back — `null` when the key was never written.
-const stored = await SecureStorage.getItem('device.seed');
-if (stored !== null) {
-  const bytes = Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
-}
-
-// Forget them. Removing an absent key resolves too.
+await SecureStorage.setBytes('device.seed', seed);
+const stored = await SecureStorage.getBytes('device.seed'); // Uint8Array | null
 await SecureStorage.removeItem('device.seed');
 ```
 
-`atob` / `btoa` are Hermes built-ins on the watch (see
-[Runtime globals](./runtime-globals)), so no polyfill is involved.
-
-## API reference
-
 | Method | Description |
 | --- | --- |
-| `getItem(key)` | Resolves with the base64 of the stored bytes, or `null` when the key is absent. |
-| `setItem(key, base64)` | Creates the item or overwrites its value. Rejects with code `invalid_base64` when the value does not decode. |
-| `removeItem(key)` | Deletes the item. Idempotent — an absent key resolves. |
+| `getBytes(key)` | Resolves with a new `Uint8Array`, or `null` when absent. |
+| `setBytes(key, bytes)` | Stores exactly the bytes in the view, including an empty view. |
+| `getItem(key)` | Resolves with base64, or `null` when absent. |
+| `setItem(key, base64)` | Creates or overwrites; rejects with `invalid_base64` if decoding fails. |
+| `removeItem(key)` | Deletes the item; removing an absent key resolves. |
 
-Any Keychain failure rejects with code `keychain_error` and the `OSStatus`
-(plus Apple's message for it) in the error message.
+Byte conversion uses the runtime's `atob` / `btoa` globals (see
+[Runtime globals](./runtime-globals)). An empty value is distinct from an
+absent key. Keychain failures reject with `keychain_error` and the `OSStatus`
+in the message; missing or unexpanded access-group configuration rejects with
+`keychain_configuration_error` before accessing the Keychain.
 
-## Storing bytes
+## Access-group configuration and existing values
 
-Libraries that keep a secret as a `Uint8Array` — a sync SDK's device key,
-say — usually expect a three-method store over bytes. This is that adapter,
-with the base64 conversion at the edge:
+Every operation explicitly uses the group in the app's
+`RNWSecureStorageAccessGroup` Info.plist key. Omitting `kSecAttrAccessGroup`
+from a lookup, update, or deletion searches **all accessible groups**, even
+though an add without it chooses only the default group. Putting the private
+group first in an entitlement list therefore does not isolate CRUD operations.
 
-```ts
-import { SecureStorage } from '@appsent-co/react-native-watchos/secure-storage';
+The Expo plugin adds this key to the iOS app's Info.plist and the watch
+`targets/<name>/Info.plist`. `init` uses the same watch helper. For a JSON
+watch target config, the helper selects the first `keychain-access-groups`
+entry, matching where earlier versions wrote values. If that JSON omits
+entitlements, an existing target entitlements plist supplies the group instead
+and is preserved by setup. The iOS plugin uses
+`ios.entitlements` for the same selection. With no group list, it uses
+`$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`, expanded by Xcode.
+Existing explicit Info.plist values are preserved.
 
-export const BytesStore = {
-  async get(key: string): Promise<Uint8Array | null> {
-    const raw = await SecureStorage.getItem(key);
-    if (raw === null) return null;
-    const bin = atob(raw);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  },
+For a dynamic `expo-target.config.js`, set the key yourself in the watch
+Info.plist: the plugin warns and leaves the setting unset rather than
+re-evaluating the config or guessing the group. The app still builds; storage
+calls reject until the setting is supplied.
+For direct native integration, add the key to each app target's Info.plist:
 
-  async set(key: string, value: Uint8Array): Promise<void> {
-    let bin = '';
-    for (let i = 0; i < value.length; i++) bin += String.fromCharCode(value[i]!);
-    await SecureStorage.setItem(key, btoa(bin));
-  },
-
-  async delete(key: string): Promise<void> {
-    await SecureStorage.removeItem(key);
-  },
-};
+```xml
+<key>RNWSecureStorageAccessGroup</key>
+<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 ```
 
-`get` returning `null` (rather than throwing) for an absent key is what
-lets a caller generate a fresh secret on first launch.
+Use that expression only if the app previously used its private default group.
+If it used Keychain Sharing, set the **original first group** instead, and
+retain the matching signing entitlement. If another plugin or native build
+configuration supplies the entitlements, set the key explicitly rather than
+relying on Expo's inferred value. Inspect the built Info.plist to confirm
+that Xcode expanded the value. A group not allowed by the app's signing
+entitlements fails with a Keychain error.
+
+The module does not move or delete values across groups. Changing this setting
+changes which store is visible. Earlier broad lookups could also have returned
+an item in a different accessible group; that item will no longer be returned.
+Recover such items using an explicitly scoped migration in the owning app.
+Do not switch an existing shared store to a private group without migrating
+its values first. Missing configuration fails clearly rather than silently
+selecting a new store. watchOS has no `SecTask` entitlement API, so the native
+module neither parses signing files nor infers an App ID prefix.
 
 ## Keychain attributes and why
 
@@ -99,32 +96,18 @@ orphan everything already stored.
 
 - **`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.** The value has
   to survive reboots (a watch reboots and the app must reconnect without
-  re-onboarding), has to be readable while the app runs unattended right
-  after a reboot (a background refresh on the charger), and must never
+  re-onboarding), has to be readable while the app runs unattended after the first
+  user unlock following a reboot (for example, a background refresh on the charger), and must never
   leave the device — a backup or iCloud-Keychain copy restored onto a
-  second device would clone a device identity. This is the only
-  accessibility class that satisfies all three: `WhenUnlocked…` fails the
+  second device would clone a device identity. Before that first unlock, reads fail. `WhenUnlocked…` fails the
   unattended read, `WhenPasscodeSet…` ties the secret to a passcode the
   user can remove, and any non-`ThisDeviceOnly` class can be restored
   elsewhere.
 - **`kSecAttrSynchronizable = false`**, set on writes and lookups alike,
   so the query is unambiguous.
-- **No `kSecAttrAccessGroup`.** The item lives in the app's *default*
-  access group. For an app without a `keychain-access-groups` entitlement
-  that is its application identifier (`<AppIDPrefix>.<bundle id>`), private
-  to the app: the watch app's secrets are invisible to the phone app and
-  vice versa, which is right — each is its own device with its own
-  identity. **With a `keychain-access-groups` entitlement the default is
-  the first entry of that list** (Apple's `SecItem.h`), and an item written
-  there is readable by every app that shares the group — a device seed or
-  a token blob would silently become shared. The module does not pin the
-  private group itself: its exact name needs the app id prefix, and the
-  entitlement is not readable at runtime on watchOS (no `SecTask`). So if
-  you enable Keychain Sharing, keep
-  `$(AppIdentifierPrefix)$(CFBundleIdentifier)` — the entry Xcode puts
-  first when it adds the capability — at the top of the list and the item
-  stays private. The example app declares no such entitlement, so the
-  simulator runs only ever exercise the private case.
+- **Explicit `kSecAttrAccessGroup`** on additions, lookups, updates, and
+  deletions. The private group isolates the app; an explicitly selected
+  shared group intentionally permits other entitled apps to access it.
 
 Two consequences worth knowing: a `ThisDeviceOnly` item is not restored
 from a backup, and a Keychain item **outlives an app uninstall** — on the

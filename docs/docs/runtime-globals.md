@@ -28,7 +28,7 @@ which adds the rest as a side effect of importing
 | `BigInt`, `DataView#getBigInt64` / `setBigInt64` | Hermes | Built in. |
 | `XMLHttpRequest` | host ([`RNWXHR.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWXHR.mm)) | `responseType` `''` / `text` / `json` / `arraybuffer`; `blob` reads back `null`. |
 | `fetch`, `Headers`, `Request`, `Response` | `polyfills` (`whatwg-fetch`) | Over `XMLHttpRequest`. |
-| `WebSocket` | host ([`RNWWebSocket.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWWebSocket.mm)) | WHATWG surface plus React Native's `{ headers }` argument — see below. |
+| `WebSocket` | host ([`RNWWebSocket.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWWebSocket.mm)) | WebSocket compatibility API plus React Native's `{ headers }` argument — see below. |
 | `ErrorUtils`, `reportError` | `polyfills` | Route uncaught errors to `console.error`. |
 | `__RNW_DEV_SERVER` | Swift host (DEBUG) | `{ host, port, entry, scheme }` of the Metro that served the bundle. |
 
@@ -94,8 +94,13 @@ scope works without any import.
   (`''`). With `{ stream: true }` an incomplete trailing sequence is held
   for the next call instead of being reported.
 
-Native is one primitive over the bytes; the class is a JS shim the host
-evaluates at install time, the same split as `WebSocket`.
+The native decoder delegates conversion and malformed-input handling to
+ICU's `u_strFromUTF8WithSub`, linked from the system `libicucore`. Its UTF-16
+output passes directly to JSI. A small wrapper retains incomplete tails
+(identified by ICU) between streaming calls and handles the leading BOM.
+The small class adapter in `runtime/TextDecoder.js` exposes its properties
+and methods. Both runtime adapters are embedded from their JavaScript source
+during the native build and installed before the application bundle runs.
 
 ## Scheduling
 
@@ -120,12 +125,18 @@ the runtime are leaked rather than released into freed memory.
 
 ## `WebSocket`
 
-Backed by `NSURLSessionWebSocketTask`. The surface is the WHATWG one, which
-is what Metro's HMR client and browser-targeted libraries expect:
+Backed by `NSURLSessionWebSocketTask` through JSI, with an authored JavaScript
+adapter in `runtime/WebSocket.js` for the interface used by Metro HMR and
+browser-targeted libraries. Runtime limitations are listed below:
 
 - **`new WebSocket(url, protocols?, options?)`** — `ws:` / `wss:` (`http:` /
-  `https:` are rewritten). `protocols` is a string or an array, offered to
-  the server in that order; an invalid token or a duplicate throws a
+  `https:` are rewritten). URLs must be absolute and have no fragment.
+  Foundation parses the URL, lowercases the scheme and host, removes the
+  default port, and supplies `/` for an empty path. This is Foundation URL
+  handling, not a complete implementation of the WHATWG URL parser; relative
+  URLs have no document base to resolve against. `protocols` is a string or an array, offered to
+  the server in that order; names are case-sensitive (`chat` and `CHAT` are
+  distinct). An invalid token or an exact duplicate throws a
   `SyntaxError`, as does an unparseable URL. `options` is React Native's
   extension — `{ headers }` rides the upgrade request, see
   [Request headers](#request-headers).
@@ -144,7 +155,8 @@ is what Metro's HMR client and browser-targeted libraries expect:
 - **`addEventListener(type, listener, { once })`**,
   **`removeEventListener(type, listener)`**, **`dispatchEvent(event)`**, and
   the `onopen` / `onmessage` / `onerror` / `onclose` handlers. The `on*`
-  handler runs first, then listeners in registration order; a listener that
+  handlers and listeners run in registration order; replacing an `on*`
+  handler preserves its position. A listener that
   throws is reported through `reportError` and does not stop the others.
 - **Events** — `open`; `message` with `data` (a string for text frames —
   byte-exact, an embedded U+0000 included — an `ArrayBuffer` for binary
@@ -152,7 +164,8 @@ is what Metro's HMR client and browser-targeted libraries expect:
   and `wasClean`. Exactly one `close` fires per socket, and it **always**
   follows a transport failure — a dropped TCP connection, a rejected upgrade
   (a `401`, say) or a failed send — after the `error` event, as
-  `code: 1006, wasClean: false`.
+  `code: 1006, wasClean: false`. The socket is already `CLOSED` when the
+  `error` handler runs.
 - **Close codes** — every code a peer may send (`1000`–`4999`) is reported
   with its reason, including the three `URLSessionWebSocketTask.CloseCode`
   has no case for (`1012`–`1014`). URLSession reports those as `1005` and
@@ -207,5 +220,8 @@ still works too, for a gateway that strips `Authorization`.
 
 The example app's `WebSocket` demo
 ([`example/src/demos/WebSocketDemo.tsx`](https://github.com/appsent-co/react-native-watchos/blob/main/example/src/demos/WebSocketDemo.tsx))
-is the conformance probe for this surface; run it against
-`example/scripts/ws-echo-server.js` after touching the shim.
+is an on-device integration probe; run it against
+`example/scripts/ws-echo-server.js` after changing the transport. Its copied
+SDK helpers exercise usage patterns, but do not prove compatibility with the
+current SDK packages. `pnpm test` runs the authored adapter with a mocked JSI
+transport, native UTF-8/range regressions, storage tests and embedding checks.

@@ -104,7 +104,23 @@ set(FAST_FLOAT_INCLUDE "${THIRD_PARTY_BUILD}/_deps/fast_float-src/include")
 # RNWHost static library
 # -----------------------------------------------------------------------------
 
+# Embed authored runtime JavaScript at build time; no second checked-in copy.
+function(rnw_embed_javascript name)
+    set(input "${SOURCES_DIR}/runtime/${name}.js")
+    set(output "${CMAKE_CURRENT_BINARY_DIR}/generated/RNW${name}Script.h")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DINPUT=${input}" "-DOUTPUT=${output}" "-DSYMBOL=kRNW${name}Script"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/embed-javascript.cmake"
+        DEPENDS "${input}" "${CMAKE_CURRENT_SOURCE_DIR}/embed-javascript.cmake"
+        VERBATIM)
+    set(RNW_RUNTIME_HEADERS ${RNW_RUNTIME_HEADERS} "${output}" PARENT_SCOPE)
+endfunction()
+rnw_embed_javascript(WebSocket)
+rnw_embed_javascript(TextDecoder)
+
 add_library(RNWHost STATIC
+    ${RNW_RUNTIME_HEADERS}
     "${SOURCES_DIR}/RNWHermesHost.mm"
     "${SOURCES_DIR}/RNWShadowNode.mm"
     "${SOURCES_DIR}/RNWUIManager.mm"
@@ -128,6 +144,12 @@ add_library(RNWHost STATIC
     "${SOURCES_DIR}/RCTModuleMethod.mm"
     "${SOURCES_DIR}/RNWNativeModules.mm"
 )
+
+target_include_directories(RNWHost PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+# TextDecoder calls the public ICU string converter. CocoaPods consumers of
+# the packaged archive receive the same dependency from the podspec.
+target_link_libraries(RNWHost PUBLIC icucore)
 
 target_include_directories(RNWHost PUBLIC
     "${SOURCES_DIR}/include"

@@ -1,5 +1,6 @@
 #import "RNWWebSocket.h"
 #import "RNWNSDataBuffer.h"
+#include "RNWWebSocketScript.h"
 
 #include <atomic>
 #include <memory>
@@ -21,7 +22,7 @@ namespace jsi = facebook::jsi;
 //   transport = { send(string | ArrayBuffer), close(code, reason),
 //                 bufferedAmount, dispose() }
 //
-// The WHATWG surface (`kRNWWebSocketShim`, at the bottom) is JS evaluated at
+// The compatibility adapter (runtime/WebSocket.js) is JS evaluated at
 // install time, so a bare Hermes consumer and `src/devSupport`'s HMR client
 // need no import.
 //
@@ -134,6 +135,30 @@ NSString *nsStringFromUtf8(const std::string &s) {
     return out ?: @"";
 }
 
+// Use Foundation's URL parser once for both the public URL and the request.
+// This runtime accepts absolute URLs; there is no document base URL.
+NSURL *normalizeWebSocketURL(jsi::Runtime &rt, const std::string &input) {
+    NSURLComponents *parts = [NSURLComponents componentsWithString:nsStringFromUtf8(input)];
+    NSString *scheme = parts.scheme.lowercaseString;
+    if ([scheme isEqualToString:@"http"]) scheme = @"ws";
+    if ([scheme isEqualToString:@"https"]) scheme = @"wss";
+    if (parts == nil || parts.host.length == 0 || parts.fragment != nil ||
+        !([scheme isEqualToString:@"ws"] || [scheme isEqualToString:@"wss"]) ||
+        (parts.port != nil && (parts.port.integerValue < 0 || parts.port.integerValue > 65535))) {
+        throw jsi::JSError(rt, "WebSocket: expected an absolute ws/wss URL without a fragment");
+    }
+    parts.scheme = scheme;
+    parts.host = parts.host.lowercaseString;
+    if (([scheme isEqualToString:@"ws"] && parts.port.integerValue == 80) ||
+        ([scheme isEqualToString:@"wss"] && parts.port.integerValue == 443)) {
+        parts.port = nil;
+    }
+    if (parts.percentEncodedPath.length == 0) parts.percentEncodedPath = @"/";
+    NSURL *url = parts.URL;
+    if (url == nil) throw jsi::JSError(rt, "WebSocket: invalid URL");
+    return url;
+}
+
 class RNWWebSocketHost : public jsi::HostObject,
                         public std::enable_shared_from_this<RNWWebSocketHost> {
 public:
@@ -177,6 +202,7 @@ public:
 
     jsi::Value get(jsi::Runtime &rt, const jsi::PropNameID &name) override {
         std::string n = name.utf8(rt);
+        if (n == "url") return jsi::String::createFromUtf8(rt, utf8FromNSString(_task.originalRequest.URL.absoluteString));
         if (n == "send") return jsi::Value(rt, *_sendFn);
         if (n == "close") return jsi::Value(rt, *_closeFn);
         if (n == "dispose") return jsi::Value(rt, *_disposeFn);
@@ -190,7 +216,7 @@ public:
 
     std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime &rt) override {
         std::vector<jsi::PropNameID> out;
-        for (const char *n : {"send", "close", "dispose", "bufferedAmount"}) {
+        for (const char *n : {"url", "send", "close", "dispose", "bufferedAmount"}) {
             out.push_back(jsi::PropNameID::forAscii(rt, n));
         }
         return out;
@@ -512,327 +538,6 @@ private:
     std::string _lastErrorMessage;
 };
 
-// Hermes has no Blob, Event or DOMException: binary frames are always
-// delivered as ArrayBuffer, event objects are plain objects, and
-// DOMException-named errors are plain Errors with `name` set.
-constexpr const char *kRNWWebSocketShim = R"JS((function () {
-  'use strict';
-  var CONNECTING = 0, OPEN = 1, CLOSING = 2, CLOSED = 3;
-  // WHATWG: a CONNECTING or OPEN socket must not be garbage collected.
-  var LIVE = new Set();
-  var warnedBlob = false;
-
-  function makeError(name, message) {
-    var e = new Error(message);
-    e.name = name;
-    return e;
-  }
-
-  // RFC 6455 §4.1: a subprotocol is an RFC 2616 token.
-  function isValidToken(p) {
-    return typeof p === 'string' && p.length > 0 &&
-      !/[^\x21-\x7e]|[()<>@,;:\\"\/\[\]?={}]/.test(p);
-  }
-
-  function normalizeProtocols(protocols) {
-    if (protocols === undefined || protocols === null) return [];
-    var list = typeof protocols === 'string' ? [protocols] : Array.from(protocols);
-    var seen = Object.create(null);
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      if (!isValidToken(p)) {
-        throw makeError('SyntaxError', "WebSocket: invalid subprotocol '" + String(p) + "'");
-      }
-      var key = p.toLowerCase();
-      if (seen[key]) {
-        throw makeError('SyntaxError', "WebSocket: duplicate subprotocol '" + p + "'");
-      }
-      seen[key] = true;
-    }
-    return list;
-  }
-
-  // Handshake fields URLSession fills in itself; a caller-supplied value is
-  // dropped so a stray header cannot break the upgrade.
-  var RESERVED_HEADERS = {
-    'connection': true, 'content-length': true, 'host': true, 'upgrade': true,
-    'sec-websocket-accept': true, 'sec-websocket-extensions': true,
-    'sec-websocket-key': true, 'sec-websocket-protocol': true,
-    'sec-websocket-version': true,
-  };
-
-  // React Native's third constructor argument, `{ headers }`, forwarded to
-  // the upgrade request as a flat [name, value, …] list.
-  function normalizeHeaders(options) {
-    if (options === undefined || options === null) return [];
-    if (typeof options !== 'object') {
-      throw new TypeError('WebSocket: options must be an object');
-    }
-    var headers = options.headers;
-    if (headers === undefined || headers === null) return [];
-    if (typeof headers !== 'object') {
-      throw new TypeError('WebSocket: options.headers must be an object');
-    }
-    var out = [];
-    var names = Object.keys(headers);
-    for (var i = 0; i < names.length; i++) {
-      var name = names[i];
-      if (!isValidToken(name)) {
-        throw makeError('SyntaxError', "WebSocket: invalid header name '" + name + "'");
-      }
-      var value = headers[name];
-      if (value === undefined || value === null) continue;
-      value = String(value);
-      if (/[\r\n\0]/.test(value)) {
-        throw makeError('SyntaxError', "WebSocket: invalid value for header '" + name + "'");
-      }
-      if (RESERVED_HEADERS[name.toLowerCase()]) continue;
-      out.push(name, value);
-    }
-    return out;
-  }
-
-  function normalizeUrl(url) {
-    var s = String(url);
-    var m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(s);
-    if (!m) throw makeError('SyntaxError', "WebSocket: invalid URL '" + s + "'");
-    var scheme = m[1].toLowerCase();
-    if (scheme === 'http') s = 'ws' + s.slice(4);
-    else if (scheme === 'https') s = 'wss' + s.slice(5);
-    else if (scheme !== 'ws' && scheme !== 'wss') {
-      throw makeError('SyntaxError', "WebSocket: URL scheme must be ws or wss, got '" + scheme + "'");
-    }
-    if (s.indexOf('#') !== -1) {
-      throw makeError('SyntaxError', 'WebSocket: URL must not contain a fragment');
-    }
-    return s;
-  }
-
-  function utf8Length(s) {
-    var n = 0;
-    for (var i = 0; i < s.length; i++) {
-      var c = s.charCodeAt(i);
-      if (c < 0x80) n += 1;
-      else if (c < 0x800) n += 2;
-      else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length &&
-               s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) <= 0xdfff) {
-        n += 4;
-        i++;
-      } else n += 3;
-    }
-    return n;
-  }
-
-  function report(err) {
-    var g = globalThis;
-    if (typeof g.reportError === 'function') {
-      try { g.reportError(err); return; } catch (_) {}
-    }
-    if (g.console && typeof g.console.error === 'function') {
-      g.console.error('WebSocket listener threw:', (err && err.stack) || err);
-    }
-  }
-
-  function invoke(listener, ws, event) {
-    try {
-      if (typeof listener === 'function') listener.call(ws, event);
-      else if (listener && typeof listener.handleEvent === 'function') listener.handleEvent(event);
-    } catch (e) {
-      report(e);
-    }
-  }
-
-  // `on<type>` first, then listeners in registration order; `{once}` entries
-  // are removed before they run and a listener removed mid-dispatch is skipped.
-  function dispatch(ws, event) {
-    event.target = ws;
-    event.currentTarget = ws;
-    event.timeStamp = Date.now();
-    var handler = ws['on' + event.type];
-    if (typeof handler === 'function') invoke(handler, ws, event);
-    var list = ws._state.listeners[event.type];
-    if (!list) return true;
-    var snapshot = list.slice();
-    for (var i = 0; i < snapshot.length; i++) {
-      var entry = snapshot[i];
-      if (entry.removed) continue;
-      if (entry.once) {
-        entry.removed = true;
-        var at = list.indexOf(entry);
-        if (at !== -1) list.splice(at, 1);
-      }
-      invoke(entry.listener, ws, event);
-    }
-    return true;
-  }
-
-  function WebSocket(url, protocols, options) {
-    if (!(this instanceof WebSocket)) {
-      throw new TypeError("Class constructor WebSocket cannot be invoked without 'new'");
-    }
-    var href = normalizeUrl(url);
-    var list = normalizeProtocols(protocols);
-    var headerList = normalizeHeaders(options);
-    var state = {
-      url: href,
-      readyState: CONNECTING,
-      protocol: '',
-      extensions: '',
-      binaryType: 'blob',
-      listeners: Object.create(null),
-      native: null,
-    };
-    Object.defineProperty(this, '_state', { value: state });
-    this.onopen = null;
-    this.onmessage = null;
-    this.onerror = null;
-    this.onclose = null;
-
-    var self = this;
-    LIVE.add(this);
-    try {
-      state.native = globalThis.__RNW_ws_connect(href, list, headerList, {
-        onOpen: function (protocol, extensions) {
-          // A handshake can complete after close() during CONNECTING; WHATWG
-          // says no `open` in that case.
-          if (state.readyState !== CONNECTING) return;
-          state.readyState = OPEN;
-          state.protocol = protocol;
-          state.extensions = extensions;
-          dispatch(self, { type: 'open' });
-        },
-        onMessage: function (data) {
-          if (state.readyState !== OPEN) return;
-          if (typeof data !== 'string' && state.binaryType === 'blob' && !warnedBlob) {
-            warnedBlob = true;
-            var c = globalThis.console;
-            if (c && typeof c.warn === 'function') {
-              c.warn("WebSocket: binaryType 'blob' is unsupported on this runtime (no Blob); " +
-                     "binary frames are delivered as ArrayBuffer. Set ws.binaryType = 'arraybuffer'.");
-            }
-          }
-          dispatch(self, { type: 'message', data: data, origin: '', lastEventId: '', ports: [] });
-        },
-        onError: function (message) {
-          dispatch(self, { type: 'error', message: message, error: makeError('Error', message) });
-        },
-        onClose: function (code, reason, wasClean) {
-          state.readyState = CLOSED;
-          LIVE.delete(self);
-          dispatch(self, { type: 'close', code: code, reason: reason, wasClean: wasClean });
-          var native = state.native;
-          state.native = null;
-          if (native) native.dispose();
-        },
-      });
-    } catch (e) {
-      LIVE.delete(this);
-      state.readyState = CLOSED;
-      throw makeError('SyntaxError', (e && e.message) || String(e));
-    }
-  }
-
-  var proto = WebSocket.prototype;
-
-  function accessor(name, get, set) {
-    Object.defineProperty(proto, name, { get: get, set: set, enumerable: true, configurable: true });
-  }
-  accessor('url', function () { return this._state.url; });
-  accessor('readyState', function () { return this._state.readyState; });
-  accessor('protocol', function () { return this._state.protocol; });
-  accessor('extensions', function () { return this._state.extensions; });
-  accessor('bufferedAmount', function () {
-    var n = this._state.native;
-    return n ? n.bufferedAmount : 0;
-  });
-  accessor('binaryType',
-    function () { return this._state.binaryType; },
-    function (v) {
-      if (v === 'blob' || v === 'arraybuffer') this._state.binaryType = v;
-    });
-
-  proto.addEventListener = function (type, listener, options) {
-    if (listener === null || listener === undefined) return;
-    var key = String(type);
-    var lists = this._state.listeners;
-    var list = lists[key] || (lists[key] = []);
-    var once = !!(options && typeof options === 'object' && options.once);
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].listener === listener) return;
-    }
-    list.push({ listener: listener, once: once, removed: false });
-  };
-
-  proto.removeEventListener = function (type, listener) {
-    var list = this._state.listeners[String(type)];
-    if (!list) return;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].listener === listener) {
-        list[i].removed = true;
-        list.splice(i, 1);
-        return;
-      }
-    }
-  };
-
-  proto.dispatchEvent = function (event) {
-    if (!event || typeof event.type !== 'string') {
-      throw new TypeError('WebSocket.dispatchEvent: event must have a string type');
-    }
-    return dispatch(this, event);
-  };
-
-  proto.send = function (data) {
-    var state = this._state;
-    if (state.readyState === CONNECTING) {
-      throw makeError('InvalidStateError', 'WebSocket.send: still in CONNECTING state');
-    }
-    if (state.readyState !== OPEN || !state.native) return;
-    var payload;
-    if (typeof data === 'string' || data instanceof ArrayBuffer) {
-      payload = data;
-    } else if (ArrayBuffer.isView(data)) {
-      payload = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength
-        ? data.buffer
-        : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    } else {
-      payload = String(data);
-    }
-    state.native.send(payload);
-  };
-
-  proto.close = function (code, reason) {
-    if (code !== undefined) {
-      code = Number(code);
-      if (!(code === 1000 || (code >= 3000 && code <= 4999))) {
-        throw makeError('InvalidAccessError',
-          'WebSocket.close: code must be 1000 or in the range 3000-4999, got ' + code);
-      }
-    }
-    if (reason !== undefined) {
-      reason = String(reason);
-      if (utf8Length(reason) > 123) {
-        throw makeError('SyntaxError', 'WebSocket.close: reason must not exceed 123 UTF-8 bytes');
-      }
-    }
-    var state = this._state;
-    if (state.readyState === CLOSING || state.readyState === CLOSED) return;
-    state.readyState = CLOSING;
-    if (state.native) {
-      state.native.close(code === undefined ? 1000 : code, reason === undefined ? '' : reason);
-    }
-  };
-
-  var constants = { CONNECTING: CONNECTING, OPEN: OPEN, CLOSING: CLOSING, CLOSED: CLOSED };
-  Object.keys(constants).forEach(function (k) {
-    var desc = { value: constants[k], writable: false, enumerable: true, configurable: false };
-    Object.defineProperty(WebSocket, k, desc);
-    Object.defineProperty(proto, k, desc);
-  });
-  Object.defineProperty(proto, Symbol.toStringTag, { value: 'WebSocket', configurable: true });
-
-  globalThis.WebSocket = WebSocket;
-})();)JS";
 
 } // namespace
 
@@ -855,10 +560,7 @@ void rnwInstallWebSocket(jsi::Runtime &rt,
                     "headers: string[], handlers)");
             }
             std::string urlStr = args[0].getString(innerRt).utf8(innerRt);
-            NSURL *url = [NSURL URLWithString:nsStringFromUtf8(urlStr)];
-            if (url == nil || url.host == nil) {
-                throw jsi::JSError(innerRt, "WebSocket: invalid URL '" + urlStr + "'");
-            }
+            NSURL *url = normalizeWebSocketURL(innerRt, urlStr);
 
             jsi::Array list = args[1].getObject(innerRt).getArray(innerRt);
             NSMutableArray<NSString *> *protocols = [NSMutableArray array];
@@ -905,6 +607,6 @@ void rnwInstallWebSocket(jsi::Runtime &rt,
         });
     rt.global().setProperty(rt, "__RNW_ws_connect", factory);
 
-    auto buffer = std::make_shared<jsi::StringBuffer>(std::string(kRNWWebSocketShim));
+    auto buffer = std::make_shared<jsi::StringBuffer>(std::string(kRNWWebSocketScript));
     rt.evaluateJavaScript(buffer, "<rnw-websocket-shim>");
 }

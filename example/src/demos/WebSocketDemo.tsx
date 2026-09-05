@@ -547,7 +547,7 @@ function buildChecks(): Array<[string, Check]> {
         const url = wsUrl('/echo');
         const ws = new WS!(url);
         const detail =
-          `url=${ws.url === url} protocol=${JSON.stringify(ws.protocol)} ` +
+          `url=${JSON.stringify(ws.url)} protocol=${JSON.stringify(ws.protocol)} ` +
           `extensions=${typeof ws.extensions} bufferedAmount=${typeof ws.bufferedAmount}`;
         await closeQuietly(ws);
         if (ws.url !== url) throw new Error(detail);

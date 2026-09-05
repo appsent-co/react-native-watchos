@@ -41,6 +41,13 @@ function ensureWatchTargetEntitlements(targetDir) {
     );
   }
   if ('entitlements' in json) return { path: configPath, added: false };
+  // apple-targets already uses an existing entitlements file. Adding an empty
+  // config object would replace it and could remove a legacy shared group.
+  if (
+    fs.readdirSync(targetDir).some((name) => name.endsWith('.entitlements'))
+  ) {
+    return { path: configPath, added: false };
+  }
 
   json.entitlements = {};
   fs.writeFileSync(configPath, JSON.stringify(json, null, 2) + '\n');
