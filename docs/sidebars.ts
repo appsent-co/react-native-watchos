@@ -42,7 +42,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Native modules',
-      items: ['native/turbo-modules'],
+      items: ['native/turbo-modules', 'native/expo-modules'],
     },
     {
       type: 'category',

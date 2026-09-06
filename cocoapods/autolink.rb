@@ -2,6 +2,7 @@ require 'json'
 require 'open3'
 require 'pathname'
 require 'cocoapods-core'
+require_relative 'expo_modules'
 
 # Scope RN's `install_modules_dependencies` to non-watchOS platforms and
 # route the watchOS slice to our `ReactNativeWatchOSCxx` pod instead. RN's
@@ -39,6 +40,17 @@ def _rnw_patch_install_modules_dependencies!
   end
 end
 
+# Expo's react-native-config adapter includes Expo packages in its iOS
+# dependency list. Their presence there is not watchOS support or consent to
+# load the stock Expo runtime. The explicit expoModules path below owns
+# discovery and validation of every Expo module instead.
+def _rnw_expo_module_package?(dependency)
+  root = dependency.is_a?(Hash) ? dependency['root'] : nil
+  return false unless root.is_a?(String)
+  File.file?(File.join(root, 'expo-module.config.json')) ||
+    File.file?(File.join(root, 'unimodule.json'))
+end
+
 # `use_watchos_modules!` — autolink third-party RN modules into a watch target.
 #
 # Designed to be called from inside a `target '<watch>' do ... end` block.
@@ -74,6 +86,8 @@ def use_watchos_modules!(opts = {})
   pod 'ReactNativeWatchOSCxx', :path => package_rel
   pod 'ReactNativeWatchOS', :path => package_rel
 
+  expo_packages = opts[:expo_modules] ? use_watchos_expo_modules!(opts) : []
+
   config_command = opts[:config_command] || [
     'npx', '--no-install', '@react-native-community/cli', 'config'
   ]
@@ -91,6 +105,8 @@ def use_watchos_modules!(opts = {})
   deps = config['dependencies'] || {}
 
   deps.each do |name, dep|
+    next if expo_packages.include?(name)
+    next if _rnw_expo_module_package?(dep)
     podspec_path = dep.dig('platforms', 'ios', 'podspecPath')
     next unless podspec_path.is_a?(String) && File.exist?(podspec_path)
 

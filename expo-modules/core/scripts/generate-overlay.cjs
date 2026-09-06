@@ -1,23 +1,25 @@
 #!/usr/bin/env node
 'use strict';
 
-// Generates a small, auditable watchOS source closure from Expo Modules Core.
-// Nothing is patched in node_modules; every generated file lives in build/.
+// Generates the narrowly-scoped, non-UI watchOS closure from authentic Expo
+// Modules Core sources. It never changes node_modules.
 
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { createRequire } = require('module');
 
-const overlayRoot = path.resolve(__dirname, '..');
-const workspaceRoot = path.resolve(overlayRoot, '..', '..');
-const outputRoot = path.join(overlayRoot, 'build', 'ExpoModulesCore');
-const expected = {
-  'expo': '57.0.20',
-  'expo-modules-core': '57.0.16',
-  'expo-modules-jsi': '57.0.8',
-  'react-native': '0.86.3',
-};
+const corePackageRoot = path.resolve(__dirname, '..');
+const versionsFile = path.resolve(corePackageRoot, '..', 'versions.json');
+const defaultOutputRoot = path.join(
+  corePackageRoot,
+  'build',
+  'ExpoModulesCore'
+);
+const generatorId = 'expo-modules/core/scripts/generate-overlay.cjs';
+const expectedCoreSourceFingerprint =
+  'c9ca14a7a16bafbc051b9933d0483f9f9419cfc897e43c59da07d25f36db481d';
+let outputRoot = defaultOutputRoot;
 
 function fail(message) {
   throw new Error(`RNW Expo Modules Core overlay: ${message}`);
@@ -27,27 +29,8 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function resolvePackages() {
-  const expoPackage = require.resolve('expo/package.json', {
-    paths: [workspaceRoot],
-  });
-  const expoRequire = createRequire(expoPackage);
-  const packages = {};
-  for (const name of Object.keys(expected)) {
-    const packageFile = expoRequire.resolve(`${name}/package.json`);
-    const pkg = readJson(packageFile);
-    if (pkg.version !== expected[name]) {
-      fail(
-        `${name} must be ${expected[name]}, found ${pkg.version} at ${packageFile}`
-      );
-    }
-    packages[name] = {
-      packageFile,
-      root: path.dirname(packageFile),
-      version: pkg.version,
-    };
-  }
-  return packages;
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 function walk(dir) {
@@ -60,27 +43,148 @@ function walk(dir) {
   return files;
 }
 
+function treeFingerprint(root, directories) {
+  const files = directories
+    .flatMap((directory) => walk(path.join(root, directory)))
+    .sort((left, right) => left.localeCompare(right));
+  const hash = crypto.createHash('sha256');
+  for (const file of files) {
+    hash.update(path.relative(root, file));
+    hash.update('\\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\\0');
+  }
+  return { files: files.length, sha256: hash.digest('hex') };
+}
+
+function requireVersion(versions, name) {
+  if (typeof versions[name] !== 'string' || versions[name].length === 0) {
+    fail(`versions.json is missing ${name}`);
+  }
+  return versions[name];
+}
+
+function loadVersions(file = versionsFile) {
+  if (!fs.existsSync(file)) fail(`versions file is missing: ${file}`);
+  const versions = readJson(file);
+  for (const name of [
+    'expo',
+    'expo-modules-core',
+    'expo-modules-jsi',
+    'react-native',
+    'react',
+    'hermes',
+    'watchos',
+  ]) {
+    requireVersion(versions, name);
+  }
+  return versions;
+}
+
+function resolvePackages(projectRoot, versions) {
+  const expoPackage = require.resolve('expo/package.json', {
+    paths: [projectRoot],
+  });
+  const expoRequire = createRequire(expoPackage);
+  const packages = {};
+  for (const name of [
+    'expo',
+    'expo-modules-core',
+    'expo-modules-jsi',
+    'react-native',
+    'react',
+  ]) {
+    const packageFile = expoRequire.resolve(`${name}/package.json`);
+    const pkg = readJson(packageFile);
+    const expected = requireVersion(versions, name);
+    if (pkg.version !== expected) {
+      fail(`${name} must be ${expected}, found ${pkg.version}`);
+    }
+    packages[name] = { root: path.dirname(packageFile), version: pkg.version };
+  }
+
+  const hermesFile = path.join(
+    packages['react-native'].root,
+    'sdks',
+    '.hermesv1version'
+  );
+  if (!fs.existsSync(hermesFile))
+    fail(`React Native Hermes version file is missing: ${hermesFile}`);
+  const hermesVersion = fs.readFileSync(hermesFile, 'utf8').trim();
+  if (hermesVersion !== versions.hermes) {
+    fail(
+      `React Native Hermes must be ${versions.hermes}, found ${hermesVersion}`
+    );
+  }
+
+  const coreFingerprint = treeFingerprint(packages['expo-modules-core'].root, [
+    'ios',
+    'common/cpp',
+  ]);
+  if (coreFingerprint.sha256 !== expectedCoreSourceFingerprint) {
+    fail(
+      `expo-modules-core source fingerprint mismatch; expected ${expectedCoreSourceFingerprint}, found ${coreFingerprint.sha256}`
+    );
+  }
+  return { packages, coreFingerprint, hermesVersion };
+}
+
+function occurrences(source, marker) {
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = source.indexOf(marker, offset);
+    if (index < 0) return count;
+    count += 1;
+    offset = index + marker.length;
+  }
+}
+
+function assertExactlyOnce(source, marker, label) {
+  const count = occurrences(source, marker);
+  if (count !== 1) fail(`${label} must occur exactly once; found ${count}`);
+  return source.indexOf(marker);
+}
+
 function copyFile(sourceRoot, relative, transforms) {
   const source = path.join(sourceRoot, relative);
   const destination = path.join(outputRoot, relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   let contents = fs.readFileSync(source, 'utf8');
   if (transforms[relative]) contents = transforms[relative](contents);
+  // Keep generated text free of a trailing blank line so the checked-in
+  // artifact passes repository whitespace validation without changing content.
+  contents = contents.replace(/\n{2,}$/u, '\n');
   fs.writeFileSync(destination, contents);
 }
 
 function removeRange(source, start, end, label) {
-  const startIndex = source.indexOf(start);
-  if (startIndex < 0) fail(`cannot find start marker for ${label}`);
-  const endIndex = source.indexOf(end, startIndex);
-  if (endIndex < 0) fail(`cannot find end marker for ${label}`);
+  const startIndex = assertExactlyOnce(source, start, `${label} start marker`);
+  const endIndex = assertExactlyOnce(source, end, `${label} end marker`);
+  if (endIndex <= startIndex)
+    fail(`${label} end marker precedes its start marker`);
   return source.slice(0, startIndex) + source.slice(endIndex);
 }
 
 function replaceOnce(source, before, after, label) {
-  const index = source.indexOf(before);
-  if (index < 0) fail(`cannot find replacement for ${label}`);
+  const index = assertExactlyOnce(source, before, label);
   return source.slice(0, index) + after + source.slice(index + before.length);
+}
+
+function replaceRegexOnce(source, pattern, replacement, label) {
+  const flags = pattern.flags.includes('g')
+    ? pattern.flags
+    : `${pattern.flags}g`;
+  const matches = [...source.matchAll(new RegExp(pattern.source, flags))];
+  if (matches.length !== 1) {
+    fail(`${label} must occur exactly once; found ${matches.length}`);
+  }
+  return source.replace(pattern, replacement);
+}
+
+function truncateAtMarker(source, marker, label) {
+  const index = assertExactlyOnce(source, marker, label);
+  return source.slice(0, index);
 }
 
 function transformAppContext(source) {
@@ -141,10 +245,18 @@ function transformAppContext(source) {
   const registrationStart =
     '  @objc\n  public func registerNativeModules(provider: ModulesProvider) {';
   const runtimeMarker = '  // MARK: - Runtime';
-  const registrationIndex = source.indexOf(registrationStart);
-  const runtimeIndex = source.indexOf(runtimeMarker, registrationIndex);
-  if (registrationIndex < 0 || runtimeIndex < 0)
-    fail('cannot find module registration section');
+  const registrationIndex = assertExactlyOnce(
+    source,
+    registrationStart,
+    'module registration section'
+  );
+  const runtimeIndex = assertExactlyOnce(
+    source,
+    runtimeMarker,
+    'runtime section'
+  );
+  if (runtimeIndex <= registrationIndex)
+    fail('runtime section precedes registration');
   source =
     source.slice(0, registrationIndex) +
     [
@@ -167,13 +279,17 @@ function transformAppContext(source) {
     '  /**\n   Unsets runtime objects that we hold for each module.',
     'UI runtime preparation'
   );
-  source = source.replace(
+  source = replaceOnce(
+    source,
     'Sets the JavaScript runtime from raw pointers. Called by `ExpoReactNativeFactory`\n   when React Native initializes the runtime.',
-    'Sets the JavaScript runtime from raw pointers supplied by the host.'
+    'Sets the JavaScript runtime from raw pointers supplied by the host.',
+    'runtime documentation'
   );
-  source = source.replace(
+  source = replaceOnce(
+    source,
     '   `scheduler` is an opaque handle that `dispatch` understands; the factories pass\n   a handle created by `expo::createReactSchedulerHandle` that references the React\n   runtime scheduler weakly (see `EXReactSchedulerDispatch.h`).',
-    '   `scheduler` is an opaque, host-owned handle that `dispatch` understands.'
+    '   `scheduler` is an opaque, host-owned handle that `dispatch` understands.',
+    'scheduler documentation'
   );
   source = replaceOnce(
     source,
@@ -204,10 +320,6 @@ function transformAppContext(source) {
     'public final class AppContext: NSObject, EXAppContextProtocol, @unchecked Sendable',
     'public final class AppContext: NSObject, @unchecked Sendable',
     'AppContext protocol'
-  );
-  source = source.replace(
-    '  ) {\n  ) {\n    if let scheduler',
-    '  ) {\n    if let scheduler'
   );
   return source;
 }
@@ -247,7 +359,12 @@ function transformModuleDefinition(source) {
 }
 
 function transformCoreModule(source) {
-  source = source.replace('internal import React\n', '');
+  source = replaceOnce(
+    source,
+    'internal import React\n',
+    '',
+    'CoreModule React import'
+  );
   source = removeRange(
     source,
     '    Function("installOnUIRuntime") {',
@@ -266,10 +383,11 @@ function transformCoreModule(source) {
     '}\n\ninternal final class WorkletUIRuntimeException',
     'view holder helper'
   );
-  const exceptionIndex = source.indexOf(
-    'internal final class WorkletUIRuntimeException'
+  source = truncateAtMarker(
+    source,
+    'internal final class WorkletUIRuntimeException',
+    'worklet exception type'
   );
-  if (exceptionIndex >= 0) source = source.slice(0, exceptionIndex);
   return source.trimEnd() + '\n';
 }
 
@@ -316,53 +434,76 @@ function transformException(source) {
 }
 
 function transformFactory(source, name) {
-  source = source.replace(
+  source = replaceRegexOnce(
+    source,
     /^\/\*\*\n (?:Asynchronous function|Synchronous function) from an optimized function descriptor\.\n The descriptor is produced by `@OptimizedFunction` macro-generated peer functions\.\n \*\/\n/,
-    ''
+    '',
+    `optimized ${name} factory documentation`
   );
-  const start = source.indexOf(
+  const optimizedMarker =
     'public func ' +
-      (name === 'async' ? 'AsyncFunction' : 'Function') +
-      '(\n  _ name: String,\n  _ descriptor: OptimizedFunctionDescriptor'
+    (name === 'async' ? 'AsyncFunction' : 'Function') +
+    '(\n  _ name: String,\n  _ descriptor: OptimizedFunctionDescriptor';
+  const start = assertExactlyOnce(
+    source,
+    optimizedMarker,
+    `optimized ${name} factory`
   );
-  if (start < 0) fail(`cannot find optimized ${name} factory`);
-  const nextDoc = source.indexOf('/**', start + 1);
+  const nextDoc = source.indexOf('/**', start + optimizedMarker.length);
   if (nextDoc < 0) fail(`cannot find normal ${name} factory`);
+  if (source.indexOf('/**', nextDoc + 1) < 0) {
+    fail(`cannot verify normal ${name} factory boundary`);
+  }
   return source.slice(0, start) + source.slice(nextDoc);
 }
 
 function transformInstallerHeader(source) {
-  source = source.replace(
+  source = replaceRegexOnce(
+    source,
     /#if !__building_module\(ExpoModulesCore\)[\s\S]*?#endif\n\n/,
-    ''
+    '',
+    'installer module import guard'
   );
-  source = source.replace(
+  source = replaceRegexOnce(
+    source,
     /#if __has_include\(<ReactCommon\/RCTRuntimeExecutor.h>\)[\s\S]*?#endif[^\n]*\n\n/,
-    ''
+    '',
+    'installer React runtime executor guard'
   );
   return '#import <Foundation/Foundation.h>\n\n' + source;
 }
 
 function transformInstallerImplementation(source) {
-  return source
-    .replace('#import <ExpoModulesCore/BridgelessJSCallInvoker.h>\n', '')
-    .replace('#import <ExpoModulesCore/EXAppContextProtocol.h>\n', '')
-    .replace(
-      '#import <react/renderer/runtimescheduler/RuntimeScheduler.h>\n',
-      ''
-    )
-    .replace(
-      '#import <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>\n',
-      ''
-    );
+  source = replaceOnce(
+    source,
+    '#import <ExpoModulesCore/BridgelessJSCallInvoker.h>\n',
+    '',
+    'bridgeless call invoker import'
+  );
+  source = replaceOnce(
+    source,
+    '#import <ExpoModulesCore/EXAppContextProtocol.h>\n',
+    '',
+    'app context protocol import'
+  );
+  source = replaceOnce(
+    source,
+    '#import <react/renderer/runtimescheduler/RuntimeScheduler.h>\n',
+    '',
+    'React runtime scheduler import'
+  );
+  return replaceOnce(
+    source,
+    '#import <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>\n',
+    '',
+    'React runtime scheduler binding import'
+  );
 }
 
 function transformUtilities(source) {
   const marker =
     '/**\n A collection of utility functions for various Expo Modules common tasks.';
-  const index = source.indexOf(marker);
-  if (index < 0) fail('cannot find UI Utilities API');
-  return source.slice(0, index);
+  return truncateAtMarker(source, marker, 'UI Utilities API');
 }
 
 function transformLogHandlers(source) {
@@ -374,9 +515,7 @@ function transformLogHandlers(source) {
   );
   const marker =
     '/**\n Log handler that writes all logs to a file using PersistentFileLog';
-  const index = source.indexOf(marker);
-  if (index < 0) fail('cannot find persistent log handler');
-  return source.slice(0, index);
+  return truncateAtMarker(source, marker, 'persistent log handler');
 }
 
 function transformPromise(source) {
@@ -399,12 +538,19 @@ function transformExpoRuntime(source) {
 }
 
 function replaceSetRuntime(source) {
-  const start = source.indexOf('  @objc\n  public func setRuntime(\n');
-  const end = source.indexOf(
-    '\n  @JavaScriptActor\n  internal func prepareRuntime()',
-    start
+  const startMarker = '  @objc\n  public func setRuntime(\n';
+  const endMarker = '\n  @JavaScriptActor\n  internal func prepareRuntime()';
+  const start = assertExactlyOnce(
+    source,
+    startMarker,
+    'setRuntime implementation'
   );
-  if (start < 0 || end < 0) fail('cannot find setRuntime implementation');
+  const end = assertExactlyOnce(
+    source,
+    endMarker,
+    'prepareRuntime implementation'
+  );
+  if (end <= start) fail('prepareRuntime precedes setRuntime');
   const replacement = `  /// Backward-compatible raw runtime entry point for hosts that do not need\n  /// an owned scheduler handle.\n  @objc\n  public func setRuntime(\n    _ runtimePointer: UnsafeMutableRawPointer,\n    scheduler: UnsafeMutableRawPointer?,\n    dispatch: UnsafeRawPointer?\n  ) {\n    setRuntime(runtimePointer, scheduler: scheduler, dispatch: dispatch, schedulerOwner: nil)\n  }\n\n  /// Adopts a host-owned JSI runtime and keeps its opaque scheduler context alive\n  /// for exactly the lifetime of ExpoRuntime. schedulerOwner is normally the\n  /// RNW binding object; it must be assigned before _runtime triggers the\n  /// authentic Expo runtime installation path.\n  @objc(setRuntime:scheduler:dispatch:schedulerOwner:)\n  public func setRuntime(\n    _ runtimePointer: UnsafeMutableRawPointer,\n    scheduler: UnsafeMutableRawPointer?,\n    dispatch: UnsafeRawPointer?,\n    schedulerOwner: AnyObject?\n  ) {\n    let runtime: ExpoRuntime\n    if let scheduler, let dispatch {\n      runtime = ExpoRuntime(\n        unsafePointer: runtimePointer,\n        scheduler: scheduler,\n        dispatch: dispatch\n      )\n    } else {\n      runtime = ExpoRuntime(unsafePointer: runtimePointer)\n    }\n    runtime.rnwSchedulerOwner = schedulerOwner\n    _runtime = runtime\n  }\n`;
   return source.slice(0, start) + replacement + source.slice(end);
 }
@@ -475,97 +621,234 @@ function include(relative) {
   return false;
 }
 
-function buildManifest(packages, copied) {
+function buildManifest(versions, sourceFingerprint, copied) {
   const files = copied.sort().map((relative) => {
     const contents = fs.readFileSync(path.join(outputRoot, relative));
-    return {
-      path: relative,
-      sha256: crypto.createHash('sha256').update(contents).digest('hex'),
-    };
+    return { path: relative, sha256: sha256(contents) };
   });
+  const licensePath = path.join(
+    outputRoot,
+    'LICENSES',
+    'ExpoModulesCore-LICENSE'
+  );
   return {
-    generatedBy: 'poc/expo-modules-core/scripts/generate-overlay.cjs',
-    packages: Object.fromEntries(
-      Object.entries(packages).map(([name, value]) => [
-        name,
-        { version: value.version, packageFile: value.packageFile },
-      ])
-    ),
+    schema: 1,
+    generatedBy: generatorId,
+    generatorSha256: sha256(fs.readFileSync(__filename)),
+    versions,
+    source: {
+      package: 'expo-modules-core',
+      sourceFingerprint,
+      sourceDirectories: ['ios', 'common/cpp'],
+      license: {
+        path: 'LICENSES/ExpoModulesCore-LICENSE',
+        sha256: sha256(fs.readFileSync(licensePath)),
+      },
+    },
     files,
   };
 }
 
-function generate() {
-  const packages = resolvePackages();
-  const coreRoot = packages['expo-modules-core'].root;
-  fs.rmSync(outputRoot, { recursive: true, force: true });
-  const transforms = {
-    'ios/Core/Modules/ModuleDefinition.swift': transformModuleDefinition,
-    'ios/Core/Modules/CoreModule.swift': transformCoreModule,
-    'ios/Core/ModulesProvider.swift': transformModulesProvider,
-    'ios/Core/Functions/AsyncFunctionDefinition.swift': transformAsyncFunction,
-    'ios/Core/Exceptions/CommonExceptions.swift': transformException,
-    'ios/Api/Factories/AsyncFunctionFactories.swift': (source) =>
-      transformFactory(source, 'async'),
-    'ios/Api/Factories/SyncFunctionFactories.swift': (source) =>
-      transformFactory(source, 'sync'),
-    'ios/JS/EXJSIInstaller.h': transformInstallerHeader,
-    'ios/JS/EXJSIInstaller.mm': transformInstallerImplementation,
-    'ios/Utilities/Utilities.swift': transformUtilities,
-    'ios/Core/Logging/LogHandlers.swift': transformLogHandlers,
-    'ios/Core/Promise.swift': transformPromise,
-    'ios/Core/ExpoRuntime.swift': transformExpoRuntime,
-    'ios/Core/AppContext.swift': (source) =>
-      replaceSetRuntime(transformAppContext(source)),
-  };
-  const copied = [];
-  for (const absolute of walk(coreRoot)) {
-    const relative = path.relative(coreRoot, absolute);
-    if (!include(relative)) continue;
-    copyFile(coreRoot, relative, transforms);
-    copied.push(relative);
-  }
-  writeUmbrella();
-  copied.push('ios/ExpoModulesCore.h', 'ios/module.modulemap');
-  const manifest = buildManifest(packages, copied);
-  fs.writeFileSync(
-    path.join(outputRoot, '.overlay-manifest.json'),
-    JSON.stringify(manifest, null, 2) + '\n'
-  );
-  return manifest;
+function copyLicense(coreRoot) {
+  const source = path.join(coreRoot, 'LICENSE');
+  if (!fs.existsSync(source))
+    fail(`Expo Modules Core license is missing: ${source}`);
+  const relative = 'LICENSES/ExpoModulesCore-LICENSE';
+  const destination = path.join(outputRoot, relative);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.copyFileSync(source, destination);
+  return relative;
 }
 
-function check() {
-  if (!fs.existsSync(path.join(outputRoot, '.overlay-manifest.json')))
-    fail('overlay has not been generated');
-  const before = fs.readFileSync(
-    path.join(outputRoot, '.overlay-manifest.json'),
-    'utf8'
-  );
-  const staging = `${outputRoot}.check-${process.pid}`;
-  fs.renameSync(outputRoot, staging);
+function generateInto(projectRoot, destination, versions) {
+  const previousOutputRoot = outputRoot;
+  outputRoot = destination;
   try {
-    const manifest = generate();
-    const after = JSON.stringify(manifest, null, 2) + '\n';
-    if (before !== after)
-      fail(
-        'generated overlay is stale; rerun pnpm --dir poc/expo-modules-core generate'
-      );
+    const { packages, coreFingerprint } = resolvePackages(
+      projectRoot,
+      versions
+    );
+    const coreRoot = packages['expo-modules-core'].root;
+    fs.mkdirSync(outputRoot, { recursive: true });
+    const transforms = {
+      'ios/Core/Modules/ModuleDefinition.swift': transformModuleDefinition,
+      'ios/Core/Modules/CoreModule.swift': transformCoreModule,
+      'ios/Core/ModulesProvider.swift': transformModulesProvider,
+      'ios/Core/Functions/AsyncFunctionDefinition.swift':
+        transformAsyncFunction,
+      'ios/Core/Exceptions/CommonExceptions.swift': transformException,
+      'ios/Api/Factories/AsyncFunctionFactories.swift': (source) =>
+        transformFactory(source, 'async'),
+      'ios/Api/Factories/SyncFunctionFactories.swift': (source) =>
+        transformFactory(source, 'sync'),
+      'ios/JS/EXJSIInstaller.h': transformInstallerHeader,
+      'ios/JS/EXJSIInstaller.mm': transformInstallerImplementation,
+      'ios/Utilities/Utilities.swift': transformUtilities,
+      'ios/Core/Logging/LogHandlers.swift': transformLogHandlers,
+      'ios/Core/Promise.swift': transformPromise,
+      'ios/Core/ExpoRuntime.swift': transformExpoRuntime,
+      'ios/Core/AppContext.swift': (source) =>
+        replaceSetRuntime(transformAppContext(source)),
+    };
+    const copied = [];
+    for (const absolute of walk(coreRoot)) {
+      const relative = path.relative(coreRoot, absolute);
+      if (!include(relative)) continue;
+      copyFile(coreRoot, relative, transforms);
+      copied.push(relative);
+    }
+    writeUmbrella();
+    copied.push(
+      'ios/ExpoModulesCore.h',
+      'ios/module.modulemap',
+      copyLicense(coreRoot)
+    );
+    const manifest = buildManifest(versions, coreFingerprint, copied);
+    fs.writeFileSync(
+      path.join(outputRoot, 'overlay-manifest.json'),
+      JSON.stringify(manifest, null, 2) + '\n'
+    );
+    return manifest;
   } finally {
-    fs.rmSync(outputRoot, { recursive: true, force: true });
-    fs.renameSync(staging, outputRoot);
+    outputRoot = previousOutputRoot;
   }
 }
 
-try {
-  if (process.argv.includes('--check')) check();
-  else {
-    const manifest = generate();
+function randomSuffix() {
+  return `${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function relativeFiles(root) {
+  return walk(root)
+    .map((file) => path.relative(root, file))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function assertDirectoriesEqual(actualRoot, expectedRoot) {
+  const actualFiles = relativeFiles(actualRoot);
+  const expectedFiles = relativeFiles(expectedRoot);
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+    fail(`generated overlay file inventory is stale: ${actualRoot}`);
+  }
+  for (const relative of expectedFiles) {
+    const actual = fs.readFileSync(path.join(actualRoot, relative));
+    const expected = fs.readFileSync(path.join(expectedRoot, relative));
+    if (!actual.equals(expected)) {
+      fail(
+        `generated overlay file is stale: ${path.join(actualRoot, relative)}`
+      );
+    }
+  }
+}
+
+function replaceAtomically(tempOutput, destination) {
+  const backup = `${destination}.previous-${randomSuffix()}`;
+  const hadDestination = fs.existsSync(destination);
+  try {
+    if (hadDestination) fs.renameSync(destination, backup);
+    fs.renameSync(tempOutput, destination);
+    if (hadDestination) fs.rmSync(backup, { recursive: true, force: true });
+  } catch (error) {
+    if (
+      !fs.existsSync(destination) &&
+      hadDestination &&
+      fs.existsSync(backup)
+    ) {
+      fs.renameSync(backup, destination);
+    }
+    throw error;
+  } finally {
+    fs.rmSync(tempOutput, { recursive: true, force: true });
+    fs.rmSync(backup, { recursive: true, force: true });
+  }
+}
+
+function generateOverlay({ projectRoot, destination, versions, check }) {
+  const tempOutput = `${destination}.tmp-${randomSuffix()}`;
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  try {
+    const manifest = generateInto(projectRoot, tempOutput, versions);
+    if (check) {
+      if (!fs.existsSync(destination)) {
+        fail(`overlay has not been generated at ${destination}`);
+      }
+      assertDirectoriesEqual(destination, tempOutput);
+      return manifest;
+    }
+    replaceAtomically(tempOutput, destination);
+    return manifest;
+  } finally {
+    fs.rmSync(tempOutput, { recursive: true, force: true });
+  }
+}
+
+function parseArgs(argv) {
+  const options = {
+    projectRoot: process.cwd(),
+    destination: defaultOutputRoot,
+    versionsFile,
+    check: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--check') options.check = true;
+    else if (
+      argument === '--project-root' ||
+      argument === '--output' ||
+      argument === '--versions-file'
+    ) {
+      const value = argv[index + 1];
+      if (!value) fail(`${argument} requires a value`);
+      index += 1;
+      if (argument === '--project-root')
+        options.projectRoot = path.resolve(value);
+      else if (argument === '--output')
+        options.destination = path.resolve(value);
+      else options.versionsFile = path.resolve(value);
+    } else if (argument === '--help') {
+      console.log(
+        'Usage: generate-overlay.cjs [--project-root <path>] [--output <path>] [--versions-file <path>] [--check]'
+      );
+      process.exit(0);
+    } else {
+      fail(`unknown argument: ${argument}`);
+    }
+  }
+  return options;
+}
+
+function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const versions = loadVersions(options.versionsFile);
+  const manifest = generateOverlay({
+    projectRoot: options.projectRoot,
+    destination: options.destination,
+    versions,
+    check: options.check,
+  });
+  if (!options.check) {
     console.log(
-      `Generated ${manifest.files.length} Expo Modules Core overlay files in ${outputRoot}`
+      `Generated ${manifest.files.length} Expo Modules Core overlay files in ${options.destination}`
     );
   }
-} catch (error) {
-  console.error(error.stack || error.message);
-  process.exitCode = 1;
+}
+
+module.exports = {
+  assertDirectoriesEqual,
+  assertExactlyOnce,
+  generateOverlay,
+  loadVersions,
+  parseArgs,
+  replaceAtomically,
+  resolvePackages,
+  treeFingerprint,
+};
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error.stack || error.message);
+    process.exitCode = 1;
+  }
 }

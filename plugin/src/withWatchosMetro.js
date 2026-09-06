@@ -69,6 +69,12 @@ function withWatchosMetro(config) {
   // intentionally isn't reachable.
   const previousResolveRequest = resolver.resolveRequest;
   resolver.resolveRequest = (context, moduleName, platform) => {
+    if (platform === WATCHOS_PLATFORM && moduleName === 'expo-modules-core') {
+      return {
+        type: 'sourceFile',
+        filePath: path.resolve(__dirname, '../../src/expoModules.ts'),
+      };
+    }
     if (platform === WATCHOS_PLATFORM && moduleName === 'react-native') {
       return { type: 'sourceFile', filePath: REACT_NATIVE_SHIM };
     }

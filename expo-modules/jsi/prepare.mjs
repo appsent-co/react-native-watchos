@@ -2,32 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import {
+  copiedDirectories,
+  verifyUpstreamSources,
+} from './verify-upstream.mjs';
 
 const overlay = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(overlay, '../..');
-const require = createRequire(path.join(root, 'package.json'));
-const expoRequire = createRequire(require.resolve('expo/package.json'));
-const coreRequire = createRequire(
-  expoRequire.resolve('expo-modules-core/package.json')
+const require = createRequire(import.meta.url);
+const { resolveCompatibility } = require('../compatibility.cjs');
+const packages = resolveCompatibility(root);
+const upstream = packages['expo-modules-jsi'].root;
+const packageJSON = JSON.parse(
+  fs.readFileSync(path.join(upstream, 'package.json'), 'utf8')
 );
-const packagePath = coreRequire.resolve('expo-modules-jsi/package.json');
-const upstream = path.dirname(packagePath);
-const packageJSON = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-const rn = path.dirname(require.resolve('react-native/package.json'));
-const rnVersion = JSON.parse(
-  fs.readFileSync(path.join(rn, 'package.json'), 'utf8')
-).version;
-if (packageJSON.version !== '57.0.8' || rnVersion !== '0.86.3') {
-  throw new Error(
-    `This PoC requires expo-modules-jsi 57.0.8 and react-native 0.86.3; found ${packageJSON.version} / ${rnVersion}`
-  );
-}
-const hermesRef = fs
-  .readFileSync(path.join(rn, 'sdks/.hermesv1version'), 'utf8')
-  .trim();
-if (hermesRef !== 'hermes-v250829098.0.17')
-  throw new Error(`Unexpected Hermes V1 ref: ${hermesRef}`);
-const buildRoot = path.join(root, 'build/poc/expo-modules-jsi');
+const rn = packages['react-native'].root;
+const rnVersion = packages['react-native'].version;
+const hermesRef = require('../versions.json').hermes;
+const fingerprints = require('./upstream-files.json');
+verifyUpstreamSources(upstream, fingerprints);
+const buildRoot = path.join(root, 'build/expo-modules-jsi');
 const generated = path.join(buildRoot, 'apple');
 const headerRoot = path.join(
   root,
@@ -48,13 +42,8 @@ function replaceOnce(source, before, after, label) {
     throw new Error(`Upstream ${label} changed; review the watchOS overlay`);
   return source.replace(before, after);
 }
-for (const directory of [
-  'Sources',
-  'APINotes',
-  'Tests',
-  'Benchmarks',
-  'scripts',
-]) {
+for (const directory of copiedDirectories) {
+  fs.rmSync(path.join(generated, directory), { recursive: true, force: true });
   fs.cpSync(
     path.join(upstream, 'apple', directory),
     path.join(generated, directory),
@@ -233,6 +222,8 @@ const podsRoot = path.join(buildRoot, 'headers-pods');
 const publicRoot = path.join(podsRoot, 'Headers/Public');
 fs.mkdirSync(publicRoot, { recursive: true });
 const jsiLink = path.join(publicRoot, 'React-jsi');
+if (fs.lstatSync(jsiLink, { throwIfNoEntry: false })?.isSymbolicLink())
+  fs.unlinkSync(jsiLink);
 if (!fs.existsSync(jsiLink)) fs.symlinkSync(headerRoot, jsiLink, 'dir');
 write(
   path.join(buildRoot, 'provenance.json'),
@@ -241,7 +232,7 @@ write(
       expoModulesJSI: packageJSON.version,
       reactNative: rnVersion,
       hermesRef,
-      upstream,
+      sources: fingerprints,
       sourceChanges: [
         {
           file: runtimeFile,
@@ -264,28 +255,5 @@ write(
     2
   ) + '\n'
 );
-// CocoaPods discovers vendored frameworks within the pod root. A local symlink
-// keeps its file traversal inside this pod while the real artifact stays in build/.
-const podBuild = path.join(overlay, 'build');
-const frameworkLink = path.join(podBuild, 'ExpoModulesJSI.xcframework');
-const frameworkTarget = path.relative(
-  podBuild,
-  path.join(generated, 'Products/ExpoModulesJSI.xcframework')
-);
-fs.mkdirSync(podBuild, { recursive: true });
-const existingFrameworkLink = fs.lstatSync(frameworkLink, {
-  throwIfNoEntry: false,
-});
-if (existingFrameworkLink) {
-  if (
-    !existingFrameworkLink.isSymbolicLink() ||
-    fs.readlinkSync(frameworkLink) !== frameworkTarget
-  ) {
-    throw new Error(
-      `Unexpected file at ${frameworkLink}; move it aside before regenerating`
-    );
-  }
-} else {
-  fs.symlinkSync(frameworkTarget, frameworkLink, 'dir');
-}
+// Publication copies the completed framework into this pod; npm excludes symlinks.
 console.log(generated);

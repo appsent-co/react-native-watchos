@@ -1,5 +1,6 @@
 #!/bin/bash
 set -eo pipefail
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # -----------------------------------------------------------------------------
 # Builds two XCFrameworks linked into the watch app via this package's
@@ -130,6 +131,7 @@ build_third_party_slice() {
     local slice="$1" plat="$2" archs="$3"
     local cache_key stamp="build/third-party/$slice/.rnw-build-key"
     cache_key=$({
+        printf '%s\n' "$(pwd)"
         shasum -a 256 cmake/third-party/CMakeLists.txt
         printf '%s\n' "$plat" "$archs" "$WATCHOS_DEPLOYMENT_TARGET"
         xcodebuild -version
@@ -143,6 +145,7 @@ build_third_party_slice() {
         return
     fi
     echo "Building third-party for $slice ($plat / $archs)..."
+    rm -rf "build/third-party/$slice"
     cmake -S cmake/third-party -B build/third-party/$slice \
         -GXcode \
         -DCMAKE_SYSTEM_NAME=watchOS \
@@ -348,6 +351,9 @@ xcodebuild -create-xcframework \
 # -----------------------------------------------------------------------------
 
 echo ""
+NODE_BINARY="${NODE_BINARY:-$(command -v node)}"
+"$NODE_BINARY" scripts/verify-package.cjs --record-runtime
+
 echo "✅ XCFrameworks created successfully!"
 echo "📦 build/xcframework/hermes.xcframework"
 echo "📦 build/xcframework/ReactNativeWatchOSCxx.xcframework"

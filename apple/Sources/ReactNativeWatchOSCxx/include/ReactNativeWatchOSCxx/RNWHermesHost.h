@@ -36,6 +36,14 @@ typedef void (^RNWJavaScriptScheduler)(dispatch_block_t callback);
 - (void)invalidate;
 @end
 
+/// Optional app-configured runtime extension factory. Implementations must
+/// return a fresh binding for each call; no binding may span multiple runtimes.
+/// ReactNativeWatchOSHost resolves the class named by the RNWRuntimeBindingFactory
+/// Info.plist key when an explicit Swift factory was not supplied.
+@protocol RNWRuntimeBindingFactory <NSObject>
++ (id<RNWRuntimeBinding>)makeRuntimeBinding;
+@end
+
 /// Owns a Hermes JS runtime via JSI. The runtime lives on a private serial
 /// dispatch queue (the "JS queue") so main-thread SwiftUI work isn't blocked.
 /// All public methods are thread-safe — they hop to the JS queue internally.

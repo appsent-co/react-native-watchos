@@ -1,0 +1,11 @@
+{
+  "platforms": ["apple", "watchos"],
+  "apple": {
+    "modules": ["FixtureExpoModule"]
+  },
+  "watchos": {
+    "modules": ["FixtureExpoModule"],
+    "podspecPath": "RNWFixtureExpoModule.podspec",
+    "swiftModuleName": "RNWFixtureExpoModule"
+  }
+}

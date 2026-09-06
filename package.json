@@ -39,17 +39,32 @@
     "apple",
     "cocoapods",
     "build/xcframework",
-    "!**/.*"
+    "!**/.*",
+    "ReactNativeWatchOSExpo.podspec",
+    "expo-modules",
+    "!expo-modules/core/Proof",
+    "cmake",
+    "scripts/build-xcframework.sh",
+    "scripts/build-hermes-watchos.sh",
+    "scripts/patch-hermes-watchos.sh",
+    "scripts/build-expo-modules.sh",
+    "scripts/verify-package.cjs",
+    "expo-modules/core/build/ExpoModulesCore",
+    "expo-modules/jsi/build"
   ],
   "scripts": {
     "build:xcframework": "./scripts/build-xcframework.sh",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "clean": "del-cli build/xcframework example/ios",
     "docs": "pnpm --filter react-native-watchos-docs start",
     "docs:build": "pnpm --filter react-native-watchos-docs build",
     "release": "release-it --only-version",
-    "prepublishOnly": "pnpm build:xcframework"
+    "prepublishOnly": "pnpm build:xcframework && pnpm build:expo-modules",
+    "build:expo-modules": "./scripts/build-expo-modules.sh",
+    "test:expo-modules": "./poc/expo-smoke/run.sh",
+    "verify:package": "node ./scripts/verify-package.cjs",
+    "prepack": "node ./scripts/verify-package.cjs"
   },
   "keywords": [
     "react-native",
@@ -89,14 +104,16 @@
     "prettier": "^3.6.2",
     "react": "19.2.3",
     "release-it": "^19.0.4",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "@babel/runtime": "^7.29.2"
   },
   "dependencies": {
     "@expo/config-plugins": "~57.0.9",
     "@expo/plist": "^0.4.8",
     "react-reconciler": "0.33.0",
     "whatwg-fetch": "^3.6.20",
-    "xcode": "^3.0.1"
+    "xcode": "^3.0.1",
+    "expo-modules-core": "57.0.16"
   },
   "sideEffects": [
     "src/polyfills.ts",
@@ -107,9 +124,9 @@
   ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",
-    "expo": "^57.0.0",
-    "react": "^19.2.3",
-    "react-native": "~0.86.3"
+    "expo": "57.0.20",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
   },
   "packageManager": "pnpm@10.10.0",
   "commitlint": {

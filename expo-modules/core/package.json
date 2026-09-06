@@ -1,7 +1,7 @@
 {
-  "name": "@appsent-co/rnw-expo-modules-core-poc",
+  "name": "@appsent-co/react-native-watchos-expo-modules-core",
   "private": true,
-  "version": "0.0.0",
+  "version": "57.0.16",
   "scripts": {
     "generate": "node scripts/generate-overlay.cjs",
     "verify-overlay": "node scripts/generate-overlay.cjs --check"

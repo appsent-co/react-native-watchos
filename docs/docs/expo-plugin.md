@@ -5,10 +5,10 @@ title: Expo plugin
 # Expo plugin
 
 The config plugin in [`plugin/`](https://github.com/appsent-co/react-native-watchos/tree/main/plugin)
-wires the Swift Package into your watch target and handles the
+wires the CocoaPods runtime into your watch target and handles the
 build-time glue:
 
-- Adds the `ReactNativeWatchOS` Swift Package to the watch target.
+- Adds the `ReactNativeWatchOS` and `ReactNativeWatchOSCxx` pods to the watch target.
 - Runs autolinking so your TurboModules are registered.
 - Lets you override the watchOS deployment target.
 - Installs the Release bundle build phase
@@ -19,11 +19,19 @@ build-time glue:
   [Dev-server endpoint](#dev-server-endpoint) below).
 
 The plugin is registered automatically by `npx react-native-watchos init`
-into your `app.json` *after* `@bacons/apple-targets`. The plugin name
+into your `app.json` _after_ `@bacons/apple-targets`. The plugin name
 in `app.json` is `@appsent-co/react-native-watchos`.
 
-> TODO: document the plugin's options (deployment target, custom
-> entry file, codegen overrides).
+| Option                    | Default     | Purpose                                                                |
+| ------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `targetName`              | `watch`     | Target created by apple-targets.                                       |
+| `bundleName`              | `main`      | Release bundle filename, without extension.                            |
+| `entryFile`               | auto-detect | Watch JavaScript entry relative to the app.                            |
+| `watchosDeploymentTarget` | `9.0`       | CocoaPods deployment floor; Expo modules require `9.4` or later.       |
+| `expoModules`             | `false`     | Enable the non-UI Expo runtime and watch-specific module registration. |
+
+With `expoModules: true`, the default floor becomes `9.4`. See the
+[Expo Modules guide](./native/expo-modules.md) for supported versions and module metadata.
 
 ## Dev-server endpoint
 
@@ -37,12 +45,12 @@ endpoint is an Info.plist value that expands from build settings.
 `targets/<name>/Info.plist`, and the config plugin re-adds any that are
 missing on every `expo prebuild` (existing values are never touched):
 
-| Key | Value written | Read by |
-| --- | --- | --- |
-| `RNWDevServerHost` | `$(RNW_DEV_SERVER_HOST)` | `defaultBundleURL()` (DEBUG only) |
-| `RNWDevServerPort` | `$(RNW_DEV_SERVER_PORT)` | `defaultBundleURL()` (DEBUG only) |
-| `NSAppTransportSecurity.NSAllowsLocalNetworking` | `true` | ATS — lets the plain-`http://` bundle fetch reach a LAN / `.local` host from a physical watch |
-| `NSMotionUsageDescription` | a dev-menu string | the shake-to-reload gesture |
+| Key                                              | Value written            | Read by                                                                                       |
+| ------------------------------------------------ | ------------------------ | --------------------------------------------------------------------------------------------- |
+| `RNWDevServerHost`                               | `$(RNW_DEV_SERVER_HOST)` | `defaultBundleURL()` (DEBUG only)                                                             |
+| `RNWDevServerPort`                               | `$(RNW_DEV_SERVER_PORT)` | `defaultBundleURL()` (DEBUG only)                                                             |
+| `NSAppTransportSecurity.NSAllowsLocalNetworking` | `true`                   | ATS — lets the plain-`http://` bundle fetch reach a LAN / `.local` host from a physical watch |
+| `NSMotionUsageDescription`                       | a dev-menu string        | the shake-to-reload gesture                                                                   |
 
 Unset build settings expand to the empty string, which the runtime treats
 as "use the default", so nothing changes until you pass them:

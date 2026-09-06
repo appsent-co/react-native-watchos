@@ -1,0 +1,9 @@
+{
+  "expo": "57.0.20",
+  "expo-modules-core": "57.0.16",
+  "expo-modules-jsi": "57.0.8",
+  "react-native": "0.86.3",
+  "react": "19.2.3",
+  "hermes": "hermes-v250829098.0.17",
+  "watchos": "9.4"
+}

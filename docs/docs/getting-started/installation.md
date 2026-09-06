@@ -13,17 +13,18 @@ skip to [Add the package](#add-the-package).
 
 You'll need:
 
-- **macOS** with **Xcode 26.4+** and the **watchOS SDK** installed
+- **macOS** with **Xcode 26.6** (Swift 6.3 compiler) and the **watchOS SDK** installed
   (open Xcode → Settings → Components → install the watchOS
   simulator runtime).
 - **Node.js 22.13+** and **pnpm** (or **npm** / **yarn** — examples
   below use `npx`/`pnpm`).
-- An **Expo SDK 57** project using **React Native 0.86.3** and
+- An **Expo 57.0.20** project using **React Native 0.86.3** and
   **React 19.2.3**. If you don't have one yet:
 
   ```sh
-  npx create-expo-app my-app
+  npx create-expo-app my-app --template expo-template-blank@57.0.22
   cd my-app
+  npm install --save-exact expo@57.0.20
   ```
 
 - **Hermes enabled.** Hermes is the default for new Expo apps; if
@@ -32,6 +33,10 @@ You'll need:
   ```json
   { "expo": { "jsEngine": "hermes" } }
   ```
+
+The published runtime is tested with this exact dependency matrix. The optional
+[Expo Modules integration](../native/expo-modules) also pins Core 57.0.16 and
+JSI 57.0.8 and requires watchOS 9.4 or later; the base renderer supports watchOS 9.0.
 
 ## Add the package
 
@@ -66,7 +71,7 @@ This runs Evan Bacon's `create-target watch` under the hood, then:
 - patches `app.json` to register the
   `@appsent-co/react-native-watchos` config plugin **after**
   `@bacons/apple-targets`. Plugin order matters: the watch target
-  must exist before this package wires the Swift Package into it.
+  must exist before this package wires the native pods into it.
 
 ### What just got generated
 

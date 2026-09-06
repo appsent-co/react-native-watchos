@@ -11,8 +11,8 @@ PHASE="${1:-all}"
 NODE_BINARY="${NODE_BINARY:-$(command -v node)}"
 
 case "$PHASE" in
-  all|build|run) ;;
-  *) echo "Usage: $0 [all|build|run]" >&2; exit 2 ;;
+  all|build|app|device|run) ;;
+  *) echo "Usage: $0 [all|build|app|device|run]" >&2; exit 2 ;;
 esac
 mkdir -p "$LOG_ROOT"
 cd "$ROOT_DIR"
@@ -32,12 +32,13 @@ run_logged() {
   fi
 }
 
-if [ "$PHASE" != "run" ]; then
+if [ "$PHASE" = "all" ] || [ "$PHASE" = "build" ]; then
   run_logged runtime-build "$ROOT_DIR/scripts/build-xcframework.sh"
-  # build.sh also performs version-checked JSI source preparation. Building
-  # both platforms ensures CocoaPods sees the real supported slice manifest.
-  run_logged jsi-build env NODE_BINARY="$NODE_BINARY" "$ROOT_DIR/poc/expo-modules-jsi/build.sh" all
-  run_logged core-generate "$NODE_BINARY" "$ROOT_DIR/poc/expo-modules-core/scripts/generate-overlay.cjs"
+  run_logged expo-build env NODE_BINARY="$NODE_BINARY" "$ROOT_DIR/scripts/build-expo-modules.sh"
+fi
+
+if [ "$PHASE" = "all" ] || [ "$PHASE" = "build" ] || [ "$PHASE" = "app" ]; then
+  run_logged metro-bundle "$NODE_BINARY" "$SMOKE_DIR/bundle.cjs"
   run_logged project-generate ruby "$SMOKE_DIR/generate-project.rb"
   run_logged pod-install pod install --project-directory="$BUILD_ROOT"
   run_logged simulator-build xcodebuild \
@@ -52,7 +53,16 @@ if [ "$PHASE" != "run" ]; then
   printf '[Expo smoke] Build passed. Logs: %s\n' "$LOG_ROOT"
 fi
 
-if [ "$PHASE" = "build" ]; then
+if [ "$PHASE" = "device" ]; then
+  run_logged device-build xcodebuild \
+    -workspace "$BUILD_ROOT/ExpoSmoke.xcworkspace" \
+    -scheme ExpoSmoke -configuration Release \
+    -destination 'generic/platform=watchOS' \
+    -derivedDataPath "$BUILD_ROOT/DerivedData-device" \
+    ARCHS="arm64 arm64_32" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+fi
+
+if [ "$PHASE" = "build" ] || [ "$PHASE" = "app" ] || [ "$PHASE" = "device" ]; then
   exit 0
 fi
 
@@ -119,15 +129,25 @@ if (result?.success !== true) {
   process.exit(1);
 }
 if (!Array.isArray(result.checks) || result.checks.length !== 6 ||
-    result.lifecycle?.creates !== 3 || result.lifecycle?.destroys !== 3) {
-  console.error(`[Expo smoke] Expected 6 checks and exactly 3 creates / 3 destroys. ${result.error ?? ''} Result: ${process.argv[3]}`);
+    result.lifecycle?.creates !== 4 || result.lifecycle?.destroys !== 4 ||
+    result.primaryGenerations !== 3 || result.simultaneousHosts !== 2 || result.explicitFactoryCalls !== 1) {
+  console.error(`[Expo smoke] Expected 6 checks, 3 primary generations, 2 simultaneous hosts, and 4 creates / 4 destroys. ${result.error ?? ''} Result: ${process.argv[3]}`);
   process.exit(1);
 }
 const labels = [
   'Expo JSI installer',
+  'public module lookup',
   'real NativeModule',
   'sync Function',
+  'runtime queue isolation',
   'native argument validation',
+  'Record conversion',
+  'Enumerable conversion',
+  'invalid Enumerable rejection',
+  'SharedObject identity and method',
+  'SharedObject argument conversion',
+  'SharedObject release',
+  'fresh native state on reload',
   'async Promise resolution',
   'native event payload',
   'event listener removal',
@@ -137,16 +157,34 @@ const labels = [
 for (let generation = 1; generation <= 3; generation++) {
   const prefix = `generation ${generation}: EXPO_SMOKE_PASS:`;
   const passes = result.checks.filter(check => typeof check === 'string' && check.startsWith(prefix));
-  const lifecycle = `generation ${generation}: OnCreate and OnDestroy exactly once`;
-  const lifecycleRecords = result.checks.filter(check => check === lifecycle);
   const reported = passes.length === 1 ? passes[0].slice(prefix.length).split(', ') : [];
-  if (passes.length !== 1 || lifecycleRecords.length !== 1 ||
+  if (passes.length !== 1 ||
       reported.length !== labels.length || !labels.every(label => reported.includes(label))) {
-    console.error(`[Expo smoke] Generation ${generation} is missing its complete JavaScript/lifecycle proof. Result: ${process.argv[3]}`);
+    console.error(`[Expo smoke] Generation ${generation} is missing its complete JavaScript proof. Result: ${process.argv[3]}`);
     process.exit(1);
   }
 }
-console.log(`[Expo smoke] PASS: 27 JavaScript assertions across 3 generations; lifecycle 3 creates / 3 destroys.`);
+const companionLabels = [
+  'companion starts with fresh native state',
+  'companion runtime queue isolation',
+  'companion initial event',
+  'native state survives other host reloads',
+  'SharedObject stays in its runtime',
+  'events stay in their runtime',
+  'companion scheduler remains live',
+  'companion event after reloads',
+  'companion native work pending at teardown',
+];
+const companionPrefix = 'EXPO_SMOKE_COMPANION_PASS:';
+const companionPasses = result.checks.filter(check => typeof check === 'string' && check.startsWith(companionPrefix));
+const companionChecks = companionPasses.length === 1 ? companionPasses[0].slice(companionPrefix.length).split(', ') : [];
+if (companionChecks.length !== companionLabels.length || !companionLabels.every(label => companionChecks.includes(label)) ||
+    !result.checks.includes('public host reload: 3 primary instances destroyed while companion stays alive') ||
+    !result.checks.includes('lifecycle: all 4 unique module instances created and destroyed exactly once')) {
+  console.error(`[Expo smoke] Missing simultaneous host isolation or lifecycle proof. Result: ${process.argv[3]}`);
+  process.exit(1);
+}
+console.log(`[Expo smoke] PASS: ${labels.length * 3 + companionLabels.length} JavaScript assertions, public host reloads, two simultaneous hosts, and 4 creates / 4 destroys.`);
 console.log(`[Expo smoke] Result: ${process.argv[3]}`);
 JS
     then

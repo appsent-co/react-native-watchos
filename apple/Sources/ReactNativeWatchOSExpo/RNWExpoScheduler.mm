@@ -1,4 +1,4 @@
-#import "Bridge.h"
+#import <ReactNativeWatchOSExpo/RNWExpoScheduler.h>
 
 @implementation RNWExpoScheduler {
   RNWJavaScriptScheduler _schedule;

@@ -1,11 +1,11 @@
-# PoC-only overlay. Build authentic expo-modules-jsi sources with build.sh first.
+# Prebuilt watchOS port of the version-pinned Expo Modules JSI sources.
 Pod::Spec.new do |s|
   s.name = 'RNWExpoModulesJSI'
   s.module_name = 'ExpoModulesJSI'
   s.version = '57.0.8'
-  s.summary = 'Experimental watchOS build of the authentic Expo Modules JSI layer.'
+  s.summary = 'Non-UI watchOS build of Expo Modules JSI.'
   s.homepage = 'https://github.com/expo/expo/tree/main/packages/expo-modules-jsi'
-  s.license = 'MIT'
+  s.license = { :type => 'MIT', :file => 'LICENSE' }
   s.author = '650 Industries, Inc.'
   s.source = { :git => 'https://github.com/expo/expo.git' }
   s.platform = :watchos, '9.4'
