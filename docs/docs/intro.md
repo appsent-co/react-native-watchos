@@ -32,8 +32,6 @@ path is not documented yet.
   them from JS with full codegen support.
 - **Watch Connectivity** — Bidirectional messaging, user-info / app
   context sync, reachability, binary payloads.
-- **Secure Storage** — Keychain-backed storage for small secrets, same
-  API on the watch and the phone — see [Secure Storage](./secure-storage).
 - **Dev experience** — Metro `?platform=watchos` resolution, Fast
   Refresh over WebSocket, shake-to-reload, on-device error toast,
   `console.*` forwarded to Metro.

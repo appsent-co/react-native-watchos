@@ -224,4 +224,4 @@ is an on-device integration probe; run it against
 `example/scripts/ws-echo-server.js` after changing the transport. Its copied
 SDK helpers exercise usage patterns, but do not prove compatibility with the
 current SDK packages. `pnpm test` runs the authored adapter with a mocked JSI
-transport, native UTF-8/range regressions, storage tests and embedding checks.
+transport, native UTF-8/range regressions and embedding checks.

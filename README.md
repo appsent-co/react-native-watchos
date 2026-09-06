@@ -74,11 +74,6 @@ them from JS with full codegen support.
 context sync, reachability and activation state, binary payloads —
 exposed from [`src/watchConnectivity/`](./src/watchConnectivity/).
 
-**Secure Storage** — Keychain-backed `getItem` / `setItem` / `removeItem`
-for small secrets (a device key, a token), scoped to the app and never
-synced — exposed from [`src/secureStorage/`](./src/secureStorage/) and
-documented in [`docs/docs/secure-storage.md`](./docs/docs/secure-storage.md).
-
 **Dev experience** — Metro `?platform=watchos` resolution via
 `withWatchosMetro`, Fast Refresh over WebSocket, shake-to-reload
 (~2.3g), on-device error toast, and `console.*` forwarded to the Metro

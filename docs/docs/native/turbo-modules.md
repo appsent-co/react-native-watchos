@@ -8,8 +8,7 @@ sidebar_position: 1
 Create native modules in Swift or Obj-C++ and call them from JS with
 full codegen support. `@appsent-co/react-native-watchos` ships with a
 [`RNWTurboModuleRegistry`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWTurboModuleRegistry.mm)
-that's compatible with the standard React Native module spec
-generator.
+that's compatible with the standard React Native module spec generator.
 
 ## What works
 
@@ -17,16 +16,14 @@ generator.
 - Promise-returning methods.
 - Event emitters via
   [`RNWRCTEventEmitter`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWRCTEventEmitter.mm).
-- Codegen-driven specs (the bundled `RNWatchConnectivity` and
-  `RNWSecureStorage` modules are worked examples).
+- Codegen-driven specs: the bundled WatchConnectivity module and the
+  example app's WatchInfo module are working examples.
 
 ## A minimal module
 
-The package's own `RNWSecureStorage` — three promise methods over the
-Keychain, no events — is the smallest complete module and the walkthrough
-below is exactly how it is wired. Every path is relative to the package
-root; an app-local module follows the same steps with its own
-`package.json` and target (the example app's `NativeWatchInfo` is one).
+The example app's `NativeWatchInfo` exposes two methods on
+`WKInterfaceDevice`. The following files are relative to `example/`;
+the module belongs to the app and compiles into its watch target.
 
 ### 1. The spec
 
@@ -34,145 +31,125 @@ A TurboModule spec is a TypeScript file whose name starts with `Native`,
 in the directory `codegenConfig.jsSrcsDir` points at:
 
 ```ts
-// src/specs/NativeSecureStorage.ts
+// src/specs/NativeWatchInfo.ts
 import type { TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 export interface Spec extends TurboModule {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, base64: string): Promise<void>;
-  removeItem(key: string): Promise<void>;
+  getModelName: () => string;
+  getSystemName: () => string;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>('RNWSecureStorage');
+export default TurboModuleRegistry.getEnforcing<Spec>('WatchInfo');
 ```
+
+The app's `package.json` contains:
 
 ```json
-// package.json
-"codegenConfig": {
-  "name": "RNWatchConnectivitySpec",
-  "type": "modules",
-  "jsSrcsDir": "src/specs"
+{
+  "codegenConfig": {
+    "name": "WatchAppSpecs",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "outputDir": {
+      "ios": "ios/build/generated/watchos-codegen"
+    }
+  }
 }
 ```
 
-One `codegenConfig` per package is all the schema allows, and one is all
-you need: every `Native*.ts` in `jsSrcsDir` is combined into **one**
-library, emitted as `<name>/<name>.h` + `<name>-generated.mm` with a
-protocol per spec (`NativeSecureStorageSpec`,
-`NativeWatchConnectivitySpec`, …). On iOS, React Native's codegen does this
-at `pod install`; on watchOS the config plugin's
-`withWatchTurboModuleCodegen` does the same at `expo prebuild` and writes
-the output under `ios/build/generated/watchos-codegen-libs/<name>/`.
-
-Byte payloads travel as base64 strings — codegen has no byte-array type.
+Every `Native*.ts` in `jsSrcsDir` is combined into one codegen library,
+with an umbrella header and a protocol per spec. Here, `WatchAppSpecs.h`
+declares `NativeWatchInfoSpec` and `NativeWatchInfoSpecJSI`.
+The `withWatchTurboModuleCodegen` config plugin generates the code at
+`expo prebuild` and adds its sources to the watch target.
 
 ### 2. The native class
 
 ```objc
-// apple/Sources/SecureStorage/RNWSecureStorage.h
+// targets/watch/NativeWatchInfo.h
+#pragma once
 #import <Foundation/Foundation.h>
-#import <React/RCTBridgeModule.h>      // RN's pod on iOS, the watch fork on watchOS
-#import "RNWatchConnectivitySpec.h"     // the codegen umbrella from step 1
+#import "WatchAppSpecs.h"
 
-@interface RNWSecureStorage : NSObject <NativeSecureStorageSpec>
+@interface NativeWatchInfo : NSObject <NativeWatchInfoSpec>
 @end
 ```
 
 ```objc
-// apple/Sources/SecureStorage/RNWSecureStorage.mm
-#import "RNWSecureStorage.h"
+// targets/watch/NativeWatchInfo.mm
+#import "NativeWatchInfo.h"
+#import <WatchKit/WatchKit.h>
 
-@implementation RNWSecureStorage
+@implementation NativeWatchInfo
 
-RCT_EXPORT_MODULE(RNWSecureStorage)   // the JS name passed to getEnforcing()
+RCT_EXPORT_MODULE(WatchInfo)
 
-+ (BOOL)requiresMainQueueSetup { return NO; }
-
-- (void)getItem:(NSString *)key
-        resolve:(RCTPromiseResolveBlock)resolve
-         reject:(RCTPromiseRejectBlock)reject
+- (NSString *)getModelName
 {
-    // ... SecItemCopyMatching; resolve([NSNull null]) when absent,
-    // reject(@"keychain_error", message, nil) on any other OSStatus.
+    return [[WKInterfaceDevice currentDevice] model];
 }
 
-// setItem:base64:resolve:reject: and removeItem:resolve:reject: likewise.
+- (NSString *)getSystemName
+{
+    return [[WKInterfaceDevice currentDevice] systemName];
+}
 
 - (std::shared_ptr<facebook::react::TurboModule>)
         getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params
 {
-    return std::make_shared<facebook::react::NativeSecureStorageSpecJSI>(params);
+    return std::make_shared<facebook::react::NativeWatchInfoSpecJSI>(params);
 }
 
 @end
 ```
 
-Two things make the same `.mm` compile on both platforms:
+The watchOS `RCT_EXPORT_MODULE` macro registers the class with
+`RNWTurboModuleRegistry`. The name must match the one passed to
+`TurboModuleRegistry.getEnforcing()` in the spec. The generated
+`NativeWatchInfoSpecJSI` supplies the JSI method bindings.
 
-- `<React/RCTBridgeModule.h>` resolves to React Native's header on iOS
-  and to the package's watchOS fork (shipped in the
-  `ReactNativeWatchOSCxx` xcframework) on the watch. The fork's
-  `RCT_EXPORT_MODULE` expands to a `+load` that registers the class with
-  `RNWTurboModuleRegistry`, which is why the consuming target links with
-  `-ObjC` (CocoaPods autolinking sets that).
-- The generated `NativeSecureStorageSpecJSI` is what turns the ObjC
-  promise methods into JSI calls. Promise blocks resolve on the JS queue
-  and drain microtasks, so `await SecureStorage.getItem(...)` continues
-  immediately.
+### 3. Call it from JavaScript
 
-Methods run on the module's native queue (one serial queue per module
-manager), not on the JS queue — blocking work such as `SecItem*` is fine
-there.
-
-### 3. The podspec
-
-Add the sources to the podspec that autolinking already picks up for the
-package. Autolinking admits exactly one podspec per npm package on each
-platform (`react-native.config.js` → `podspecPath` on the watch side,
-the root podspec matching the package name on the Expo side), so a
-second module goes into the existing one rather than a new file:
-
-```ruby
-# RNWatchConnectivity.podspec
-s.platforms      = { :ios => '15.0', :watchos => '9.0' }   # :watchos is the opt-in
-s.source_files   = [
-  'apple/Sources/WatchConnectivity/RNWWatchConnectivity.mm',
-  'apple/Sources/WatchConnectivity/RNWWatchConnectivity.h',
-  'apple/Sources/SecureStorage/RNWSecureStorage.mm',
-  'apple/Sources/SecureStorage/RNWSecureStorage.h',
-]
-s.frameworks     = 'WatchConnectivity', 'Security'
-```
-
-`:watchos` in `s.platforms` is what `use_watchos_modules!` keys on to
-compile the pod into the watch target; the `:ios` entry keeps the module
-in the phone app. The iOS-only dependencies (`React-Core`, `ReactCodegen`)
-are scoped with `s.ios.dependency`; the watch slice depends on
-`ReactNativeWatchOSCxx` instead and gets the codegen output directory on
-its header search path (see the full podspec).
-
-### 4. The JS facade
+Import the spec from your app's code:
 
 ```ts
-// src/secureStorage/index.ts
-import NativeSecureStorage from '../specs/NativeSecureStorage';
+import WatchInfo from './specs/NativeWatchInfo';
 
-export const SecureStorage = {
-  async getItem(key: string): Promise<string | null> {
-    return (await NativeSecureStorage.getItem(key)) ?? null;
-  },
-  setItem: (key: string, base64: string) => NativeSecureStorage.setItem(key, base64),
-  removeItem: (key: string) => NativeSecureStorage.removeItem(key),
-};
+const model = WatchInfo.getModelName();
+const system = WatchInfo.getSystemName();
 ```
 
-exported from `package.json` as
-`"./secure-storage": "./src/secureStorage/index.ts"`.
+### 4. Regenerate
 
-### 5. Regenerate
+After adding, changing or removing a spec, run `expo prebuild -p ios`
+before building so the generated headers and native sources match it.
 
-Changing `jsSrcsDir` or adding a spec changes what both codegens scan, so
-run `expo prebuild -p ios --clean` (which re-runs `pod install`) before
-building. A stale `ios/` tree still carries the old umbrella header, and
-the new `.mm` fails to compile against it.
+## Modules distributed as packages
+
+A reusable module declares its own `codegenConfig` and a podspec that
+opts into watchOS. The bundled
+[`RNWatchConnectivity.podspec`](https://github.com/appsent-co/react-native-watchos/blob/main/RNWatchConnectivity.podspec)
+shows this setup:
+
+```ruby
+s.platforms = { :ios => '15.0', :watchos => '9.0' }
+s.source_files = [
+  'apple/Sources/WatchConnectivity/RNWWatchConnectivity.mm',
+  'apple/Sources/WatchConnectivity/RNWWatchConnectivity.h',
+]
+s.frameworks = 'WatchConnectivity'
+```
+
+The `:watchos` platform enables discovery by `use_watchos_modules!`.
+The `:ios` entry also makes the module available to the phone app.
+Scope iOS dependencies such as `React-Core` and `ReactCodegen` with
+`s.ios.dependency`. The watch slice depends on `ReactNativeWatchOSCxx`
+and includes its generated spec directory through header search paths.
+
+Each package has one codegen library containing its specs. On iOS,
+React Native generates it during `pod install`. On watchOS, the config
+plugin writes dependency libraries under
+`ios/build/generated/watchos-codegen-libs/<name>/` during `expo prebuild`.
+See [Watch Connectivity](../watch-connectivity) for a module that combines
+promise methods and events.

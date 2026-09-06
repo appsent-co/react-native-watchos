@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const plist = require('@expo/plist').default;
 const { withDangerousMod } = require('@expo/config-plugins');
-const { ACCESS_GROUP_KEY, watchAccessGroup } = require('./withSecureStorage');
 
 // Read by `ReactNativeWatchOSHost.defaultBundleURL()`; mirror the keys in
 // `apple/Sources/ReactNativeWatchOS/ReactNativeWatchOS.swift`.
@@ -54,14 +53,6 @@ function ensureWatchInfoPlist(targetDir) {
   if (!(DEV_SERVER_PORT_KEY in dict)) {
     dict[DEV_SERVER_PORT_KEY] = `$(${DEV_SERVER_PORT_SETTING})`;
     added.push(DEV_SERVER_PORT_KEY);
-  }
-
-  if (!(ACCESS_GROUP_KEY in dict)) {
-    const group = watchAccessGroup(targetDir);
-    if (group !== null) {
-      dict[ACCESS_GROUP_KEY] = group;
-      added.push(ACCESS_GROUP_KEY);
-    }
   }
 
   const ats = dict.NSAppTransportSecurity;

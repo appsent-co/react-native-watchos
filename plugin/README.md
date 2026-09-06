@@ -84,11 +84,6 @@ watch target in the pbxproj, this plugin:
    physical watch can fetch the plain-http bundle from the Mac's LAN IP,
    and `NSMotionUsageDescription` for the shake-to-reload gesture.
    `npx react-native-watchos init` writes the same keys up front.
-6. Pins `RNWSecureStorageAccessGroup` in the iOS and watch Info.plists,
-   preserving explicit values and selecting the first configured Keychain
-   access group (or the private app group when no list is configured).
-   Dynamic watch target configs need an explicit value; see
-   [Secure Storage](../docs/docs/secure-storage.md) for setup and migration.
 
 The Hermes XCFramework is prebuilt and shipped inside the npm tarball at
 `build/xcframework/Hermes.xcframework`. No `npm install` post-build steps

@@ -4,8 +4,6 @@ const withWatchAutolinking = require('./withWatchAutolinking');
 const withWatchBundleScript = require('./withWatchBundleScript');
 const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
 const withWatchInfoPlist = require('./withWatchInfoPlist');
-const withWatchTargetConfig = require('./withWatchTargetConfig');
-const withSecureStorage = require('./withSecureStorage');
 
 /**
  * Expo Config Plugin for `@appsent-co/react-native-watchos`.
@@ -27,11 +25,7 @@ const withSecureStorage = require('./withSecureStorage');
  *      `$(RNW_DEV_SERVER_PORT)`, so the Metro endpoint is an xcodebuild
  *      argument), the `NSAllowsLocalNetworking` ATS exception (plain-http
  *      bundle fetch from a physical watch) and `NSMotionUsageDescription`
- *      (shake-to-open dev menu). Also pins RNWSecureStorageAccessGroup
- *      in the watch and iOS Info.plists to their existing default groups.
- *   5. `withWatchTargetConfig` — adds `"entitlements": {}` to
- *      `targets/<name>/expo-target.config.json` when the key is missing, so
- *      the simulator's Keychain (the `SecureStorage` module) works.
+ *      (shake-to-open dev menu).
  *
  * Recommended app.json:
  *
@@ -46,7 +40,7 @@ const withSecureStorage = require('./withSecureStorage');
  *
  * And `targets/watch/expo-target.config.json`:
  *
- *   { "type": "watch", "entitlements": {} }
+ *   { "type": "watch" }
  *
  * Order matters: `@bacons/apple-targets` MUST run before this plugin so the
  * watch target exists in the pbxproj when we look it up.
@@ -73,7 +67,6 @@ const withReactNativeWatchOS = (config, opts) => {
   const entryFile = opts && opts.entryFile;
   const watchosDeploymentTarget = opts && opts.watchosDeploymentTarget;
   return withPlugins(config, [
-    withSecureStorage,
     // Run codegen BEFORE the bundle script so the generated sources are
     // wired into the watch target's pbxproj when Xcode opens it (the
     // bundle script is a separate Run Script phase that doesn't depend
@@ -82,7 +75,6 @@ const withReactNativeWatchOS = (config, opts) => {
     [withWatchAutolinking, { targetName, watchosDeploymentTarget }],
     [withWatchBundleScript, { targetName, bundleName, entryFile }],
     [withWatchInfoPlist, { targetName }],
-    [withWatchTargetConfig, { targetName }],
   ]);
 };
 

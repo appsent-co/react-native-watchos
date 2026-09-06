@@ -216,26 +216,6 @@ xcrun simctl launch  <watch UDID> com.appsent.watchosexample.watch
 
 Caveats that cost time the first time round:
 
-- **Leave code signing on for the simulator build.** Stage 1 built with
-  `CODE_SIGNING_ALLOWED=NO`; that works until something touches the
-  Keychain. The simulator's `securityd` requires an `application-identifier`
-  entitlement, which Xcode only synthesises (into the binary's
-  `__TEXT,__entitlements` section, as `<team>.<bundle id>`) when it ad-hoc
-  signs the app **and** the target has a `CODE_SIGN_ENTITLEMENTS` file. An
-  unsigned build, or a signed one whose watch target has no entitlements
-  file, fails every `SecItem*` call with `OSStatus -34018` (*A required
-  entitlement isn't present*) — that is what the runtime probe's two
-  `secure-storage-*` checks reported before
-  [`targets/watch/expo-target.config.json`](targets/watch/expo-target.config.json)
-  gained `"entitlements": {}` (an empty dict is enough; `@bacons/apple-targets`
-  writes `generated.entitlements` from it and wires `CODE_SIGN_ENTITLEMENTS`).
-  `npx react-native-watchos init` now writes that key up front and the
-  config plugin adds it to a JSON target config that lacks it (effective on
-  the next prebuild — `@bacons/apple-targets` reads the file before any
-  plugin mod runs), and a `-34018` rejection now names the fix. Ad-hoc
-  simulator signing needs no certificate or profile, so dropping the
-  `CODE_SIGNING_ALLOWED=NO` override costs nothing. The unsigned device
-  *link check* further down is unaffected.
 - **A relaunch may serve a stale evaluation.** `simctl terminate` +
   `launch` normally re-fetches the bundle, but once a relaunch was observed
   running the previous one. `simctl uninstall` + `install` + `launch`
@@ -322,8 +302,8 @@ automatically with `npx react-native-watchos init` + `expo prebuild`:
    for `getLibraryPath` / `getEntryPoint`.
 4. **`@appsent-co/react-native-watchos` at a version whose runtime carries
    the Stage 2 globals** (`crypto.getRandomValues`, `TextDecoder`,
-   `Symbol.asyncIterator`, `queueMicrotask`, the rewritten `WebSocket`) and
-   the `SecureStorage` module — everything `@fireflydb/core` needs, listed
+   `Symbol.asyncIterator`, `queueMicrotask`, the rewritten `WebSocket`) —
+   the runtime APIs `@fireflydb/core` needs, listed
    in [`docs/docs/runtime-globals.md`](../docs/docs/runtime-globals.md) and
    asserted by the runtime probe below. `@fireflydb/core` constructs its
    `TextDecoder`s at module scope, so a watch entry that imports the SDK
@@ -333,23 +313,11 @@ automatically with `npx react-native-watchos init` + `expo prebuild`:
    writes the Info.plist keys** (`RNWDevServerHost` / `RNWDevServerPort`,
    `NSAllowsLocalNetworking`). Older versions leave the scaffolded watch
    target on a hard-coded `127.0.0.1:8081` and refuse the LAN bundle fetch.
-6. **An entitlements file on the watch target** (`"entitlements": {}` in
-   `targets/watch/expo-target.config.json` at minimum) so the simulator
-   build carries `application-identifier` and the Keychain-backed
-   `SecureStorage` works there — see the recipe caveats above. `init` and
-   the config plugin write the key for a JSON target config (the plugin's
-   addition applies from the next prebuild); a `.js` target config needs
-   it by hand. A device build gets the entitlement from its provisioning
-   profile regardless.
-7. **A `SecureStorageDriver` over `SecureStorage`** for the device seed
-   (the adapter is in
-   [`docs/docs/secure-storage.md`](../docs/docs/secure-storage.md) and the
-   runtime probe's `device-key-keychain` runs a verbatim copy of it), and
-   the plan's "wipe the database on `reset_tokens`" rule extended to
-   `removeItem('fireflydb.device.seed')`: the Keychain item outlives an
-   uninstall (observed on the simulator, see the runtime probe), so a
-   reinstall would otherwise come back as the *same* FireflyDB peer with
-   an empty database.
+6. **An in-memory device-key store.** The runtime probe passes the SDK's
+   `InMemorySecureStorage` to `createFireflyClient`. Reinitializing a client
+   with the same store keeps its identity for that run. A fresh store or
+   app relaunch creates a new identity; this example needs no persistent
+   secret storage.
 
 ### Device build (watchOS SDK)
 
@@ -525,9 +493,8 @@ recorded as a deviation. It is not one.
 
 `src/demos/RuntimeProbeDemo.tsx` asserts every global the FireflyDB JS SDK
 needs from the watch runtime, in the exact shape the SDK uses it (each
-check names the `@fireflydb/core` source line it protects), plus the
-package's `SecureStorage` module. It mounts at launch like every gallery
-demo and prints one line per check:
+check names the `@fireflydb/core` source line it protects). It mounts at
+launch like every gallery demo and prints one line per check:
 
 ```
 [RuntimeProbe] PASS <name>: <detail>
@@ -548,61 +515,29 @@ label normalisation, `{stream: true}`); binary / numeric (`DataView`
 BigInt64 round trip, BigInt exactness above 2^53); scheduling (timers,
 `queueMicrotask` ordering, `setImmediate` staying a macrotask,
 `Symbol.asyncIterator`, `for await` over the SDK's `WsRecvQueue` shape,
-the unhandled-rejection tracker); platform (`WebSocket` presence —
-conformance is the WebSocket demo's job — `SecureStorage` round trip with
-overwrite / remove / bad-base64 rejection, a `secure-storage-persist`
-marker that reports `fresh` or `persisted`, and finally
-`require('@fireflydb/op-sqlite-driver')`, `require('@fireflydb/core')`,
-`loadOrCreateDeviceKey` over the SDK's in-memory store,
-`device-key-keychain` — `loadOrCreateDeviceKey` over the Keychain-backed
-adapter from `docs/docs/secure-storage.md`, asserting the peer identity
-survives a relaunch — and `client-init`, the gate proper:
-`createFireflyClient(...)` composed the way a consumer composes it (the
-driver's watch entry over an app-owned op-sqlite handle, the same Keychain
-adapter, a developer pubkey and one bundled signed migration) and
-`await client.init()` offline, asserting `client.peerID` derives from the
-Keychain seed, `_firefly_config.developer_pubkey` is pinned, the migration
-chain head is 1 and the migration's table exists, and that a second client
-over the same handle re-inits without re-applying. The SDK only consumes
-signed envelopes, so the probe packs and signs its own one-envelope chain
-(`FMIG` header + `signDeviceProof`, the Ed25519 primitive libfirefly
-verifies) under a fixed developer key; the DB file is deleted at the end so
-every launch runs the full path on a fresh database. `@fireflydb/core` is an
-explicit dependency here because an unresolvable `require` breaks the whole
-bundle at build time).
+the unhandled-rejection tracker); and platform (`WebSocket` presence,
+with conformance checked by the WebSocket demo).
 
-Status (Apple Watch Series 11 42mm simulator, watchOS 26.4, same recipe as
-above): **`DONE pass=40 fail=0`**, `[FireflyDemo] canary=33
-driverEntry=ok (index.watchos.ts)`, `[WebSocketDemo] DONE pass=38
-fail=0`, zero `watchOS ERR` lines. `client-init` printed `init() ok in
-14ms: peerID=9Qj0UPUm… (Keychain seed agrees), developer_pubkey pinned,
-migration seq 1 applied (rnw_probe_notes created + tracked), re-init over
-the same handle idempotent` on a fresh install and again on a relaunch —
-the same peer `device-key-keychain` reports, so the client really did take
-its key from the Keychain adapter — which closes the Stage 2 gate's second
-half (`createFireflyClient(...).init()` offline) on the simulator; the
-`init()` also arms the SDK's change-listener GC nudger, i.e. the
-`FireflyClient` TurboModule's `addChangeListener` + `onFireflyChange` event
-emitter work on this runtime. `secure-storage-persist` reported
-`fresh` on the first launch after install, `persisted` on a relaunch,
-`persisted` after `simctl shutdown` + `boot` (the
-`AfterFirstUnlockThisDeviceOnly` item survives a reboot) **and
-`persisted` after `simctl uninstall` + `install`** — on this OS a Keychain
-item outlives the app, so a consumer that wants a reinstall to be a new
-peer must `removeItem` the seed itself. `device-key` (an in-memory store)
-printed a different `peerID` on every launch (`w6FN…`, `Sa0u…`, `T4g5…`,
-`1iJF…`), which is what a stubbed or zero-filling `SecRandomCopyBytes`
-could not do; `device-key-keychain` — `loadOrCreateDeviceKey` through a
-verbatim copy of the docs' Keychain-backed `WatchSecureStorage` adapter,
-under a probe-scoped key — printed `fresh peerID=PJaWPytX…` on the first
-launch and `persisted peerID=PJaWPytX…` on a reinstall and on a relaunch,
-with the Keychain bytes equal to the seed the SDK holds and `delete`
-yielding a fresh peer: the Stage 2 gate's "device key generated and
-persisted", through the adapter a consumer will actually copy. Before the
-Stage 2 changes the same probe would stop at `driver-entry` with
-`Property 'TextDecoder' doesn't exist`, and with an unsigned build the two
-`secure-storage-*` checks fail with `OSStatus -34018` (recipe caveats
-above; the rejection message now names the fix).
+The final checks load `@fireflydb/op-sqlite-driver` and `@fireflydb/core`
+and run `loadOrCreateDeviceKey` over the SDK's `InMemorySecureStorage`.
+They verify that the same store returns the same identity and a fresh
+store gets a new one.
+
+`client-init` composes `createFireflyClient(...)` over an app-owned
+op-sqlite handle, an in-memory store, a developer public key and one
+bundled signed migration. It calls `await client.init()` offline and
+checks that `client.peerID` derives from the in-memory seed,
+`_firefly_config.developer_pubkey` is pinned, the migration chain head is
+1 and the migration's table exists. A second client uses the same handle
+and store to verify reinitialization without changing identity or
+reapplying the migration.
+
+The SDK only consumes signed envelopes, so the probe packs and signs its
+own one-envelope chain (`FMIG` header + `signDeviceProof`) under a fixed
+developer key. The DB file is deleted at the end, and the store is
+released with the probe. Device keys are ephemeral: nothing is retained
+across app launches. `@fireflydb/core` is an explicit dependency because
+an unresolvable `require` breaks the bundle at build time.
 
 Fast Refresh full reloads with sockets in flight were also exercised on
 this build (and repeated after the native hosts learned to release their
@@ -624,10 +559,7 @@ the app when touching DB code.
 
 Touching `RNWCrypto.mm`, `RNWTextDecoder.mm` or `RNWHermesHost.mm` means
 rebuilding the prebuilt `ReactNativeWatchOSCxx.xcframework` (see the
-WebSocket section); `RNWSecureStorage.mm` is compiled from source by the
-`RNWatchConnectivity` pod, so `expo prebuild --clean` + a normal build
-picks it up. Not covered by a simulator run: the Keychain and
-`SecRandomCopyBytes` on a physical watch (`secure-storage-*` and
-`grv-entropy` are the two checks whose device behaviour a simulator cannot
-prove), so the probe is the thing to run first on a paired watch.
+WebSocket section). Run the probe on a paired physical watch as well to
+verify device behavior, including the `grv-entropy` check for
+`SecRandomCopyBytes`.
 

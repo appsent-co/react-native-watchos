@@ -38,7 +38,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'watch-connectivity',
-    'secure-storage',
     'runtime-globals',
     {
       type: 'category',

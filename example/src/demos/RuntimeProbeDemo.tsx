@@ -6,30 +6,22 @@ import {
   font,
   foregroundStyle,
 } from '@appsent-co/react-native-watchos/renderer';
-import { SecureStorage } from '@appsent-co/react-native-watchos/secure-storage';
-import type { SecureStorageDriver } from '@fireflydb/op-sqlite-driver';
 
 /// Regression probe for the watch runtime's globals — every one the
 /// FireflyDB JS SDK (`@fireflydb/core` + `@fireflydb/op-sqlite-driver`)
 /// touches, asserted against the exact shape the SDK uses (the source
-/// location is named next to each check), plus the package's own
-/// `SecureStorage` module. It mounts at app launch like every gallery demo,
-/// so the result shows up in Metro without navigating:
+/// location is named next to each check). It mounts at app launch like every
+/// gallery demo, so the result shows up in Metro without navigating:
 ///
 ///   [RuntimeProbe] PASS <name>: <detail>
 ///   [RuntimeProbe] FAIL <name>: <detail>
 ///   [RuntimeProbe] DONE pass=<n> fail=<m>
 ///
-/// The last five checks `require` the SDK packages themselves, so a green
-/// run means both evaluate on this runtime; `device-key-keychain` runs
-/// `loadOrCreateDeviceKey` through the Keychain-backed `SecureStorageDriver`
-/// adapter the docs hand consumers, and `client-init` composes
-/// `createFireflyClient(...)` over an app-owned op-sqlite handle the way a
-/// consumer does and runs `init()` offline — the Stage 2 gate of the
-/// FireflyDB watch proof of concept (WATCHOS_FIREFLY_POC_PLAN.md: "the
-/// runtime probe passes and `createFireflyClient(...).init()` succeeds
-/// offline on the watch — device key generated and persisted, bundled
-/// migrations applied").
+/// The last four checks load the SDK packages themselves, exercise device
+/// keys with the SDK's InMemorySecureStorage, and run
+/// `createFireflyClient(...).init()` offline over an app-owned op-sqlite
+/// handle with bundled migrations. Device keys are ephemeral: they live
+/// only in each probe's in-memory store and are lost when it is discarded.
 
 // ---------------------------------------------------------------------------
 // Globals under test, typed loosely on purpose: the probe must compile (and
@@ -202,35 +194,6 @@ function requireGuarded<T>(load: () => T | undefined, what: string): T {
     );
   }
   return entry;
-}
-
-// ---------------------------------------------------------------------------
-// SDK byte-store adapter using the public SecureStorage byte facade.
-// ---------------------------------------------------------------------------
-
-export class WatchSecureStorage implements SecureStorageDriver {
-  get(key: string): Promise<Uint8Array | null> {
-    return SecureStorage.getBytes(key);
-  }
-
-  set(key: string, value: Uint8Array): Promise<void> {
-    return SecureStorage.setBytes(key, value);
-  }
-
-  delete(key: string): Promise<void> {
-    return SecureStorage.removeItem(key);
-  }
-}
-
-/// `loadOrCreateDeviceKey` reads one fixed key (`fireflydb.device.seed`,
-/// core/src/keys.ts). Namespacing it keeps the probe from owning the example
-/// app's real device seed — the adapter under test is the same either way.
-function scoped(store: SecureStorageDriver, prefix: string): SecureStorageDriver {
-  return {
-    get: (key) => store.get(prefix + key),
-    set: (key, value) => store.set(prefix + key, value),
-    delete: (key) => store.delete(prefix + key),
-  };
 }
 
 let driverEntry: DriverEntry | null = null;
@@ -811,55 +774,6 @@ const CHECKS: readonly [string, Check][] = [
     },
   ],
   [
-    'secure-storage-roundtrip',
-    async () => {
-      assert(typeof G.btoa === 'function', 'btoa missing');
-      const key = 'rnw.probe';
-      const first = G.btoa('\x01\x02\x03');
-      await SecureStorage.setItem(key, first);
-      const got = await SecureStorage.getItem(key);
-      assert(got === first, `getItem=${got}, want ${first}`);
-      assert(
-        bytesEqual(base64ToBytesFallback(got), bytes(1, 2, 3)),
-        'decoded bytes differ'
-      );
-      // Overwrite: exercises the errSecDuplicateItem → SecItemUpdate branch.
-      const second = G.btoa('\x09\x08');
-      await SecureStorage.setItem(key, second);
-      const after = await SecureStorage.getItem(key);
-      assert(after === second, `after overwrite getItem=${after}`);
-      let rejectedCode = 'none';
-      try {
-        await SecureStorage.setItem(key, '!!!');
-      } catch (e) {
-        rejectedCode = (e as { code?: string }).code ?? errorMessage(e);
-      }
-      assert(rejectedCode !== 'none', 'invalid base64 was accepted');
-      await SecureStorage.removeItem(key);
-      const gone = await SecureStorage.getItem(key);
-      assert(gone === null, `after removeItem getItem=${String(gone)}`);
-      await SecureStorage.removeItem(key); // idempotent
-      return `set/get/overwrite/remove ok, absent → null, bad base64 → ${rejectedCode}`;
-    },
-  ],
-  [
-    'secure-storage-persist',
-    async () => {
-      // Written only when absent; a relaunch reports `persisted`, a run after
-      // uninstall + install reports whatever the OS does with the Keychain.
-      const key = 'rnw.probe.persist';
-      const existing = await SecureStorage.getItem(key);
-      if (existing !== null) {
-        const stored = new (requireDecoder())().decode(base64ToBytesFallback(existing));
-        return `persisted (${stored})`;
-      }
-      const stamp = `first-seen ${new Date().toISOString()}`;
-      const encoded = new (requireEncoder())().encode(stamp);
-      await SecureStorage.setItem(key, bytesToBase64Fallback(encoded));
-      return `fresh (${stamp})`;
-    },
-  ],
-  [
     'driver-entry',
     () => {
       // Metro resolves this to the driver's src/index.watchos.ts; it pulls
@@ -870,6 +784,7 @@ const CHECKS: readonly [string, Check][] = [
         'loadOrCreateDeviceKey',
         'generateDeviceKey',
         'deriveDeviceKey',
+        'InMemorySecureStorage',
         'getLibraryPath',
         'getEntryPoint',
       ] as const;
@@ -909,63 +824,16 @@ const CHECKS: readonly [string, Check][] = [
       assert(again.peerID === first.peerID, 'same store yielded a different peerID');
       const other = await entry.loadOrCreateDeviceKey(new entry.InMemorySecureStorage());
       assert(other.peerID !== first.peerID, 'fresh store reproduced the peerID');
-      return `seed=32 pub=32 peerID=${first.peerID} (stable on the same store, distinct on a fresh one, ${coldMs}ms cold)`;
-    },
-  ],
-  [
-    'device-key-keychain',
-    async () => {
-      // The Stage 2 gate proper: loadOrCreateDeviceKey over the documented
-      // Keychain byte facade adapter above — 32-byte seed → bridge → SecItem
-      // → base64 → bytes → the same peerID. A relaunch reports `persisted`
-      // with the peerID this launch created; `delete` yields a fresh peer.
-      const entry = loadDriverEntry();
-      const SEED_KEY = 'fireflydb.device.seed'; // core/src/keys.ts SEED_KEY
-      const PREFIX = 'rnw.probe.';
-      const store = scoped(new WatchSecureStorage(), PREFIX);
-      const before = await SecureStorage.getItem(PREFIX + SEED_KEY);
-      const t0 = Date.now();
-      const first = await entry.loadOrCreateDeviceKey(store);
-      const ms = Date.now() - t0;
-      assert(first.seed.length === 32, `seed length ${first.seed.length}`);
-      assert(first.peerID.length === 43, `peerID length ${first.peerID.length}`);
-      const stored = await SecureStorage.getItem(PREFIX + SEED_KEY);
-      assert(stored !== null, 'seed missing from the Keychain after loadOrCreateDeviceKey');
-      assert(
-        bytesEqual(base64ToBytesFallback(stored), first.seed),
-        'Keychain bytes differ from the seed the SDK holds'
-      );
-      const again = await entry.loadOrCreateDeviceKey(store);
-      assert(
-        again.peerID === first.peerID,
-        `re-load through the Keychain gave ${again.peerID}, want ${first.peerID}`
-      );
-      if (before !== null) {
-        // Persisted from an earlier launch: the identity must be the one
-        // those bytes derive to, not a silently regenerated seed.
-        const previous = entry.deriveDeviceKey(base64ToBytesFallback(before)).peerID;
-        assert(previous === first.peerID, `launch-to-launch peerID changed (${previous} → ${first.peerID})`);
-      }
-      // `delete` → a fresh peer, on a throwaway key so the persisted one
-      // above survives for the next launch's comparison.
-      const throwaway = scoped(new WatchSecureStorage(), `${PREFIX}tmp.`);
-      const a = await entry.loadOrCreateDeviceKey(throwaway);
-      await throwaway.delete(SEED_KEY);
-      const b = await entry.loadOrCreateDeviceKey(throwaway);
-      await throwaway.delete(SEED_KEY);
-      assert(a.peerID !== b.peerID, 'delete did not yield a fresh peer');
-      return `${before === null ? 'fresh' : 'persisted'} peerID=${first.peerID} (Keychain bytes == seed, re-load stable, delete → fresh peer, ${ms}ms)`;
+      return `seed=32 pub=32 peerID=${first.peerID} (ephemeral memory: stable on the same store, distinct on a fresh one, ${coldMs}ms cold)`;
     },
   ],
   [
     'client-init',
     async () => {
-      // The other half of the Stage 2 gate: `createFireflyClient(...).init()`
-      // offline, composed the way a consumer composes it (sweepy's
-      // src/store/firefly/client.ts) — the driver's watch entry over an
-      // app-owned op-sqlite handle, the Keychain adapter above (same scoped
-      // seed as `device-key-keychain`, so it is the same peer), a developer
-      // pubkey and one bundled signed migration. `init()` is
+      // `createFireflyClient(...).init()` offline using the driver's watch
+      // entry over an app-owned op-sqlite handle, the SDK's in-memory
+      // device-key store, a developer pubkey and one bundled signed migration.
+      // Both clients below share this store for this check only. `init()` is
       // loadOrCreateDeviceKey → OpSqliteDriver.open (WAL + libfirefly loaded
       // onto the handle) → firefly_init → pin developer_pubkey (base64url
       // via btoa) → applyBundledMigrations (TextEncoder / DataView / BigInt
@@ -983,7 +851,7 @@ const CHECKS: readonly [string, Check][] = [
         sql: PROBE_MIGRATION_SQL,
       });
       assert(core.readEnvelopeSeq(envelope) === 1, 'fixture envelope does not decode to seq 1');
-      const store = scoped(new WatchSecureStorage(), 'rnw.probe.');
+      const store = new entry.InMemorySecureStorage();
       const db = open({ name: 'rnw-probe-client.db' });
       const probeDb = db as unknown as ProbeDb;
       const make = () =>
@@ -1004,13 +872,12 @@ const CHECKS: readonly [string, Check][] = [
         const ms = Date.now() - t0;
         const peerID = client.peerID;
         assert(peerID.length === 43, `peerID length ${peerID.length}`);
-        // The device key came from the Keychain adapter: the stored seed
-        // derives to the client's peer.
-        const stored = await SecureStorage.getItem('rnw.probe.fireflydb.device.seed');
-        assert(stored !== null, 'device seed missing from the Keychain after init()');
+        // The in-memory seed derives to the client's peer.
+        const stored = await store.get('fireflydb.device.seed');
+        assert(stored !== null, 'device seed missing from memory after init()');
         assert(
-          entry.deriveDeviceKey(base64ToBytesFallback(stored)).peerID === peerID,
-          'Keychain seed does not derive to client.peerID'
+          entry.deriveDeviceKey(stored).peerID === peerID,
+          'in-memory seed does not derive to client.peerID'
         );
         const pinned = await scalar<string>(
           probeDb,
@@ -1032,9 +899,9 @@ const CHECKS: readonly [string, Check][] = [
         );
         assert(table === PROBE_TABLE, `migration SQL did not create ${PROBE_TABLE}`);
         await client.close();
-        // A second client over the same handle (sign-out / sign-in swaps do
-        // this): the pinned pubkey must agree, the chain head stays at 1
-        // (no re-apply), the peer is the same.
+        // A second client over the same handle and in-memory store: the
+        // pinned pubkey must agree, the chain head stays at 1 (no re-apply),
+        // and the peer is the same for this store's lifetime.
         const again = make();
         await again.init();
         assert(again.peerID === peerID, `re-init changed the peer (${again.peerID})`);
@@ -1045,7 +912,7 @@ const CHECKS: readonly [string, Check][] = [
         );
         assert(Number(headAgain) === 1, `chain head after re-init = ${String(headAgain)}`);
         await again.close();
-        return `init() ok in ${ms}ms: peerID=${peerID} (Keychain seed agrees), developer_pubkey pinned, migration seq 1 applied (${PROBE_TABLE} created + tracked), re-init over the same handle idempotent`;
+        return `init() ok in ${ms}ms: peerID=${peerID} (ephemeral in-memory seed agrees), developer_pubkey pinned, migration seq 1 applied (${PROBE_TABLE} created + tracked), re-init over the same handle and memory store idempotent`;
       } finally {
         db.delete();
       }
