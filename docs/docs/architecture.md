@@ -27,7 +27,7 @@ title: Architecture
 
 1. **JS** — Your React tree, running in Hermes. Reconciliation is
    handled by a custom host config targeting react-reconciler
-   `0.32.x`.
+   `0.33.x` (React 19.2).
 2. **C++/Obj-C++ bridge** — Hosts Hermes, owns the TurboModule
    registry, implements JSI shims (`fetch`, `XMLHttpRequest`,
    `WebSocket`, timers, `console` — see

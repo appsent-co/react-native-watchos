@@ -4,7 +4,6 @@
     "slug": "watchos-example",
     "version": "1.0.0",
     "orientation": "portrait",
-    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.appsent.watchosexample",
       "supportsTablet": false

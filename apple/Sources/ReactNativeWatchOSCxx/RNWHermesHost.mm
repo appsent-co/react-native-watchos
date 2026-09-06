@@ -40,6 +40,8 @@ namespace {
 // Identity key for `dispatch_queue_set_specific`. GCD compares by pointer.
 char kRNWJSQueueKeyByte = 0;
 void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
+char kRNWRuntimeKeyByte = 0;
+void* const kRNWRuntimeKey = &kRNWRuntimeKeyByte;
 
 // Zero-copy read-only jsi::Buffer over an NSData. Hermes reads its bytes
 // during evaluateJavaScript; the NSData retain keeps the storage alive
@@ -58,6 +60,10 @@ private:
 
 } // namespace
 
+void *RNWCurrentJavaScriptRuntime(void) {
+    return dispatch_get_specific(kRNWRuntimeKey);
+}
+
 @implementation RNWHermesHost {
     std::shared_ptr<jsi::Runtime> _runtime;
     // Serial queue that owns the runtime. Every `_runtime` access must
@@ -71,10 +77,16 @@ private:
     uint64_t _nextTimerId;
     std::shared_ptr<facebook::react::CallInvoker> _jsCallInvoker;
     std::shared_ptr<facebook::react::NativeMethodCallInvoker> _nativeMethodCallInvoker;
+    id<RNWRuntimeBinding> _runtimeBinding;
 }
 
 - (instancetype)init {
+    return [self initWithRuntimeBinding:nil];
+}
+
+- (instancetype)initWithRuntimeBinding:(id<RNWRuntimeBinding>)binding {
     if ((self = [super init])) {
+        _runtimeBinding = binding;
         _jsQueue = dispatch_queue_create(
             "com.appsent.reactnativewatchos.js",
             DISPATCH_QUEUE_SERIAL);
@@ -96,6 +108,7 @@ private:
                     .withMicrotaskQueue(true)
                     .build();
             _runtime = fbhermes::makeHermesRuntime(runtimeConfig);
+            dispatch_queue_set_specific(_jsQueue, kRNWRuntimeKey, _runtime.get(), NULL);
             _jsQueueRef.setRuntime(_runtime.get());
             _jsCallInvoker =
                 std::make_shared<facebook::react::RNWJSQueueCallInvoker>(
@@ -116,6 +129,19 @@ private:
             rnwInstallTextDecoder(*_runtime);
             [self installTurboModules];
             [self installNativeModules];
+            if (_runtimeBinding != nil) {
+                // Copy only the queue's invalidatable runtime cell. A binding
+                // may retain this scheduler without retaining the host.
+                auto jsQueueRef = _jsQueueRef;
+                [_runtimeBinding installInRuntime:_runtime.get()
+                               scheduleJavaScript:^(dispatch_block_t callback) {
+                    if (callback == nil) return;
+                    jsQueueRef.runOnJS(^(jsi::Runtime &rt) {
+                        (void)rt;
+                        callback();
+                    });
+                }];
+            }
         });
     }
     return self;
@@ -136,8 +162,13 @@ private:
         __block std::shared_ptr<jsi::Runtime> runtime = std::move(_runtime);
         __block auto timers = std::move(_timers);
         __block auto intervals = std::move(_intervalSources);
+        __block id<RNWRuntimeBinding> binding = _runtimeBinding;
+        _runtimeBinding = nil;
         facebook::react::RNWJSQueue jsQueueRef = _jsQueueRef;
         dispatch_sync(queue, ^{
+            // Release extension-owned JSI values while Hermes is still alive.
+            [binding invalidate];
+            binding = nil;
             // Ahead of `runtime.reset()`, so hops queued behind this block
             // find a null runtime and return.
             jsQueueRef.invalidate();
@@ -147,6 +178,7 @@ private:
             intervals.clear();
             timers.clear();
             runtime.reset();
+            dispatch_queue_set_specific(queue, kRNWRuntimeKey, NULL, NULL);
         });
     }
 }

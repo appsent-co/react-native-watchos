@@ -235,7 +235,8 @@ Caveats that cost time the first time round:
 - **`react-native-get-random-values` is a declared dependency here on
   purpose.** It is a non-optional peer of `@fireflydb/op-sqlite-driver`
   (needed by the driver's *iOS* entry), so pnpm auto-installs it anyway;
-  declaring it pins 2.0.0 and keeps the native graph the same under
+  declaring Expo SDK 57's supported `~1.11.0` version keeps the native
+  graph the same under
   package managers that do not auto-install peers. It autolinks as an
   iOS-only CocoaPod (`s.platforms` has no `:watchos`), so it is absent from
   `Pods-watch` and plays no part in the watch build.

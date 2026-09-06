@@ -3,12 +3,38 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// Runtime owned by the currently executing RNW JS queue, or NULL elsewhere.
+/// Serial GCD queues may change OS threads; integrations must check queue
+/// identity instead of caching a pthread ID. Valid only for the current hop.
+#ifdef __cplusplus
+extern "C" {
+#endif
+FOUNDATION_EXPORT __attribute__((visibility("default")))
+void * _Nullable RNWCurrentJavaScriptRuntime(void);
+#ifdef __cplusplus
+}
+#endif
+
 typedef NS_ENUM(NSInteger, RNWLogLevel) {
     RNWLogLevelLog,
     RNWLogLevelWarn,
     RNWLogLevelError,
     RNWLogLevelInfo,
 };
+
+/// Schedules work on this runtime's serial JS queue and drains microtasks.
+/// Safe to retain after host teardown: late callbacks are discarded.
+typedef void (^RNWJavaScriptScheduler)(dispatch_block_t callback);
+
+/// Optional native runtime extension. Both methods run on the JS queue.
+/// An implementation must release its JSI handles in `invalidate`, before the
+/// host destroys Hermes, and must not retain the host itself.
+@protocol RNWRuntimeBinding <NSObject>
+- (void)installInRuntime:(void *)runtime
+     scheduleJavaScript:(RNWJavaScriptScheduler)schedule
+    NS_SWIFT_NAME(install(runtime:schedule:));
+- (void)invalidate;
+@end
 
 /// Owns a Hermes JS runtime via JSI. The runtime lives on a private serial
 /// dispatch queue (the "JS queue") so main-thread SwiftUI work isn't blocked.
@@ -19,7 +45,12 @@ typedef NS_ENUM(NSInteger, RNWLogLevel) {
 /// `src/setupConsole.ts` and routes through `__RNW_log` to `onConsoleLog`.
 @interface RNWHermesHost : NSObject
 
-- (instancetype)init NS_DESIGNATED_INITIALIZER;
+- (instancetype)init;
+
+/// Installs an optional binding after the host globals and before any JS is
+/// evaluated. The host owns the binding until runtime teardown.
+- (instancetype)initWithRuntimeBinding:(nullable id<RNWRuntimeBinding>)binding
+    NS_DESIGNATED_INITIALIZER;
 
 /// Evaluate JS on the JS queue. `data` may hold UTF-8 source or
 /// pre-compiled Hermes bytecode — Hermes detects which via the buffer's

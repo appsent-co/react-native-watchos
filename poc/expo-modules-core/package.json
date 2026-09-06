@@ -1,0 +1,9 @@
+{
+  "name": "@appsent-co/rnw-expo-modules-core-poc",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "generate": "node scripts/generate-overlay.cjs",
+    "verify-overlay": "node scripts/generate-overlay.cjs --check"
+  }
+}

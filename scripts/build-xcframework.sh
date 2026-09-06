@@ -38,40 +38,59 @@ SIMULATOR_ARCHS="arm64"
 
 WATCHOS_DEPLOYMENT_TARGET="9.0"
 
-# Clean previous *build* artifacts but keep the Hermes source clone +
-# host_hermesc compilation across runs — those don't change between
-# iterations and take the longest. Pass --clean as the first arg for a
-# fully clean rebuild.
-if [ "$1" = "--clean" ]; then
-    echo "Clean rebuild requested — removing all build artifacts."
-    rm -rf build
+# Keep source checkouts, including local patches, even for --clean. Each
+# requested Hermes ref gets its own checkout so an RN upgrade cannot silently
+# reuse the previous engine or overwrite a developer's source changes.
+if [ "${1:-}" = "--clean" ]; then
+    echo "Clean rebuild requested — removing compiled artifacts (preserving Hermes sources)."
+    rm -rf build/hermes/build build/third-party
 fi
-rm -rf build/hermes/build/sim build/hermes/build/dev
-rm -rf build/hermes/build/output-sim build/hermes/build/output-dev
 rm -rf build/jsi build/host build/reactcommon build/xcframework
-# Keep build/third-party across runs — it takes 5+ minutes (folly/glog fetch
-# + compile) and changes only when cmake/third-party/CMakeLists.txt changes.
-# `--clean` above wipes the whole build/ tree if a full reset is needed.
-mkdir -p build/hermes/source
-mkdir -p build/xcframework
+mkdir -p build/hermes/sources build/xcframework
 
-# Get Hermes tag/commit from .hermesversion. The file content is the literal
-# git ref to check out — both schemes (`hermes-vX.Y.Z` for tagged releases and
-# `hermes-YYYY-MM-DD-RNvX.Y.Z-<sha>` for date-stamped snapshots) work directly
-# as tag names in facebook/hermes.
 echo "Determining Hermes version..."
-HERMES_REF=$(cat node_modules/react-native/sdks/.hermesversion)
+HERMES_VERSION_FILE="node_modules/react-native/sdks/.hermesversion"
+# RN 0.84+ uses Hermes V1 by default. Match its hermes-compiler package so
+# release bytecode and the watch runtime stay compatible.
+if [ -f node_modules/react-native/sdks/.hermesv1version ]; then
+    HERMES_VERSION_FILE="node_modules/react-native/sdks/.hermesv1version"
+fi
+HERMES_REF=$(cat "$HERMES_VERSION_FILE")
+if [[ -z "$HERMES_REF" || "$HERMES_REF" == -* || "$HERMES_REF" == *[[:space:]]* ]]; then
+    echo "Error: invalid Hermes git ref in $HERMES_VERSION_FILE" >&2
+    exit 1
+fi
 echo "Using Hermes ref: $HERMES_REF"
 
+# Retain compatibility with existing caches only when their HEAD actually
+# matches RN's requested ref. Otherwise leave that checkout untouched.
 HERMES_SOURCE="$(pwd)/build/hermes/source"
-if [ ! -d "$HERMES_SOURCE/.git" ]; then
-    echo "Cloning Hermes..."
-    rm -rf "$HERMES_SOURCE"
-    git clone https://github.com/facebook/hermes.git "$HERMES_SOURCE"
-    ( cd "$HERMES_SOURCE" && git checkout "$HERMES_REF" )
-else
-    echo "Reusing existing Hermes source at $HERMES_SOURCE"
+HERMES_COMMIT=$(git -C "$HERMES_SOURCE" rev-parse --verify "$HERMES_REF^{commit}" 2>/dev/null || true)
+if [ -z "$HERMES_COMMIT" ] || [ "$(git -C "$HERMES_SOURCE" rev-parse HEAD 2>/dev/null || true)" != "$HERMES_COMMIT" ]; then
+    HERMES_REF_KEY=$(printf '%s' "$HERMES_REF" | shasum -a 256 | cut -c1-16)
+    HERMES_SOURCE="$(pwd)/build/hermes/sources/$HERMES_REF_KEY"
+    if [ ! -e "$HERMES_SOURCE" ]; then
+        echo "Fetching Hermes $HERMES_REF into $HERMES_SOURCE..."
+        # Fetch in a temporary directory so interruption cannot poison the cache.
+        HERMES_FETCH_DIR=$(mktemp -d "$(pwd)/build/hermes/sources/.fetch-$HERMES_REF_KEY.XXXXXX")
+        git init -q "$HERMES_FETCH_DIR"
+        git -C "$HERMES_FETCH_DIR" remote add origin https://github.com/facebook/hermes.git
+        git -C "$HERMES_FETCH_DIR" fetch --depth 1 origin "$HERMES_REF"
+        git -C "$HERMES_FETCH_DIR" checkout --detach FETCH_HEAD
+        git -C "$HERMES_FETCH_DIR" update-ref refs/rnw/source HEAD
+        printf '%s\n' "$HERMES_REF" > "$HERMES_FETCH_DIR/.git/rnw-source-ref"
+        mv "$HERMES_FETCH_DIR" "$HERMES_SOURCE"
+    fi
+    # Refuse an incomplete cache or a manually switched checkout. Never reset
+    # or clean source files: the user may have made intentional local changes.
+    if [ "$(cat "$HERMES_SOURCE/.git/rnw-source-ref" 2>/dev/null || true)" != "$HERMES_REF" ] ||
+       [ "$(git -C "$HERMES_SOURCE" rev-parse HEAD 2>/dev/null || true)" != "$(git -C "$HERMES_SOURCE" rev-parse refs/rnw/source 2>/dev/null || true)" ]; then
+        echo "Error: Hermes cache at $HERMES_SOURCE is incomplete or checked out at a different ref." >&2
+        echo "Move that directory aside and retry; its files have been preserved." >&2
+        exit 1
+    fi
 fi
+echo "Using Hermes source at $HERMES_SOURCE ($(git -C "$HERMES_SOURCE" rev-parse HEAD))"
 
 # Apply Hermes watchOS patches (idempotent — checks for existing markers)
 ./scripts/patch-hermes-watchos.sh "$HERMES_SOURCE"
@@ -109,8 +128,18 @@ echo "Building Hermes for watchOS device..."
 
 build_third_party_slice() {
     local slice="$1" plat="$2" archs="$3"
-    if [ -f "build/third-party/$slice/install/lib/libfolly.a" ]; then
-        echo "Reusing cached third-party for $slice (lib/libfolly.a found)"
+    local cache_key stamp="build/third-party/$slice/.rnw-build-key"
+    cache_key=$({
+        shasum -a 256 cmake/third-party/CMakeLists.txt
+        printf '%s\n' "$plat" "$archs" "$WATCHOS_DEPLOYMENT_TARGET"
+        xcodebuild -version
+        cmake --version
+    } | shasum -a 256 | cut -d ' ' -f 1)
+    if [ "$(cat "$stamp" 2>/dev/null || true)" = "$cache_key" ] &&
+       [ -f "build/third-party/$slice/install/lib/libfolly.a" ] &&
+       [ -f "build/third-party/$slice/install/lib/libglog.a" ] &&
+       [ -f "build/third-party/$slice/install/lib/libdouble-conversion.a" ]; then
+        echo "Reusing matching third-party cache for $slice"
         return
     fi
     echo "Building third-party for $slice ($plat / $archs)..."
@@ -122,6 +151,7 @@ build_third_party_slice() {
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$WATCHOS_DEPLOYMENT_TARGET" \
         -DCMAKE_INSTALL_PREFIX=build/third-party/$slice/install
     cmake --build build/third-party/$slice --config MinSizeRel --target install
+    printf '%s\n' "$cache_key" > "$stamp"
 }
 
 build_third_party_slice device watchos "$DEVICE_ARCHS"
@@ -143,6 +173,7 @@ build_reactcommon_slice() {
         -DPLATFORM_NAME=$plat \
         -DCMAKE_OSX_ARCHITECTURES="$archs" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$WATCHOS_DEPLOYMENT_TARGET" \
+        -DHERMES_SOURCE_DIR="$HERMES_SOURCE" \
         -DCMAKE_INSTALL_PREFIX=build/reactcommon/$slice/install
     cmake --build build/reactcommon/$slice --config MinSizeRel --target install
 }
@@ -252,6 +283,12 @@ for slice in device simulator; do
     cp -R "build/reactcommon/$slice/install/include/react" \
         "build/xcframework/$slice/Headers/"
 
+    # Expo's native EventEmitter reports listener exceptions through this
+    # upstream header-only helper. Its only dependency is the JSI API above.
+    mkdir -p "build/xcframework/$slice/Headers/cxxreact"
+    cp "node_modules/react-native/ReactCommon/cxxreact/ErrorUtils.h" \
+        "build/xcframework/$slice/Headers/cxxreact/"
+
     # Our watchOS-safe forks of <React/RCTBridgeModule.h> and
     # <ReactCommon/RCTTurboModule.h>. Layered on top of the cxxreact
     # headers copied above (same `ReactCommon/` dir gets our RCTTurboModule.h
@@ -307,7 +344,7 @@ xcodebuild -create-xcframework \
 # 6. Keep intermediate artifacts. Re-running this script reuses the Hermes
 # source clone and host_hermesc compilation (the two longest steps),
 # rebuilding only the watchOS/watchsimulator slices and our host code. Pass
-# `--clean` as the first argument to wipe everything.
+# `--clean` as the first argument to wipe compiled artifacts, preserving sources.
 # -----------------------------------------------------------------------------
 
 echo ""

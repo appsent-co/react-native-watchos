@@ -13,12 +13,13 @@ skip to [Add the package](#add-the-package).
 
 You'll need:
 
-- **macOS** with **Xcode 16+** and the **watchOS SDK** installed
+- **macOS** with **Xcode 26.4+** and the **watchOS SDK** installed
   (open Xcode → Settings → Components → install the watchOS
   simulator runtime).
-- **Node.js 20+** and **pnpm** (or **npm** / **yarn** — examples
+- **Node.js 22.13+** and **pnpm** (or **npm** / **yarn** — examples
   below use `npx`/`pnpm`).
-- An **Expo SDK 54+** project. If you don't have one yet:
+- An **Expo SDK 57** project using **React Native 0.86.3** and
+  **React 19.2.3**. If you don't have one yet:
 
   ```sh
   npx create-expo-app my-app
@@ -133,7 +134,11 @@ You should see `Hello from watchOS` on the watch face. Edit
 ```tsx title="index.watchos.tsx"
 import '@appsent-co/react-native-watchos/dev-support';
 
-import { render, Text, VStack } from '@appsent-co/react-native-watchos/renderer';
+import {
+  render,
+  Text,
+  VStack,
+} from '@appsent-co/react-native-watchos/renderer';
 
 function App() {
   return (

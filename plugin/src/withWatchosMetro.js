@@ -72,6 +72,47 @@ function withWatchosMetro(config) {
     if (platform === WATCHOS_PLATFORM && moduleName === 'react-native') {
       return { type: 'sourceFile', filePath: REACT_NATIVE_SHIM };
     }
+    if (platform === WATCHOS_PLATFORM) {
+      // Expo 57's resolver rejects platforms without a known RN support
+      // package. Express watchOS resolution through ordered extensions at
+      // the fallback boundary, keeping the bundle's actual platform intact.
+      const upstreamResolveRequest = context.resolveRequest;
+      const resolveWatchosRequest = (nextContext, request, nextPlatform) => {
+        if (nextPlatform !== WATCHOS_PLATFORM) {
+          return upstreamResolveRequest(nextContext, request, nextPlatform);
+        }
+        return upstreamResolveRequest(
+          {
+            ...nextContext,
+            resolveRequest: upstreamResolveRequest,
+            preferNativePlatform: false,
+            sourceExts: nextContext.sourceExts.flatMap((ext) => [
+              `watchos.${ext}`,
+              `native.${ext}`,
+              ext,
+            ]),
+            unstable_conditionNames: [
+              ...new Set([
+                ...(nextContext.unstable_conditionNames || []),
+                ...(nextContext.unstable_conditionsByPlatform?.watchos || []),
+              ]),
+            ],
+          },
+          request,
+          null
+        );
+      };
+      // Existing custom resolvers still receive watchos and can return
+      // their own aliases; only their fallback enters Expo as platform-less.
+      if (previousResolveRequest) {
+        return previousResolveRequest(
+          { ...context, resolveRequest: resolveWatchosRequest },
+          moduleName,
+          platform
+        );
+      }
+      return resolveWatchosRequest(context, moduleName, platform);
+    }
     if (previousResolveRequest) {
       return previousResolveRequest(context, moduleName, platform);
     }
