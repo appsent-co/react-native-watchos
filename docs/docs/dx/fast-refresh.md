@@ -13,7 +13,8 @@ How it's wired:
 - Metro emits HMR updates over WebSocket.
 - The watch
   [`RNWWebSocket`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWWebSocket.mm)
-  client subscribes.
+  client (the runtime's `WebSocket` global — see
+  [Runtime globals](../runtime-globals)) subscribes.
 - Updates are routed into the JS runtime via JSI.
 
 If Fast Refresh stops working, common culprits:

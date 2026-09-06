@@ -1,0 +1,39 @@
+diff --git a/src/FireflyClientModule.ts b/src/FireflyClientModule.ts
+index ded3e4f746a2d407ae3e681d104dd7675c2faf87..201c456f3a2ac3a10adfda882d6080c1e281d6c1 100644
+--- a/src/FireflyClientModule.ts
++++ b/src/FireflyClientModule.ts
+@@ -13,6 +13,21 @@ export type { FireflyChangeEvent } from './NativeFireflyClient';
+ 
+ export default FireflyClient;
+ 
++/**
++ * Absolute path of the bundled libfirefly extension (platform suffix
++ * stripped — SQLite's `sqlite3_load_extension` re-appends it). Exposed so
++ * apps can `db.loadExtension(getLibraryPath(), getEntryPoint())` on their own
++ * op-sqlite connection without deep-importing the TurboModule spec.
++ */
++export function getLibraryPath(): string {
++  return FireflyClient.getLibraryPath();
++}
++
++/** Entry-point symbol for `sqlite3_load_extension` (`sqlite3_firefly_init`). */
++export function getEntryPoint(): string {
++  return FireflyClient.getEntryPoint();
++}
++
+ /**
+  * Subscribe to local CRDT writes against the database file at `path`.
+  * `handler` receives the decoded RowState batch — pass it to your upstream
+diff --git a/src/client.ts b/src/client.ts
+index 56824d843cb010f18a81bbcd8e69142282d13f6b..7456b3bd8340f9d8c53272dd3622ff666f66bd81 100644
+--- a/src/client.ts
++++ b/src/client.ts
+@@ -62,6 +62,8 @@ export function createFireflyClient(
+ 
+ export {
+   subscribeToChanges,
++  getLibraryPath,
++  getEntryPoint,
+   type FireflyChangeEvent,
+ } from './FireflyClientModule';
+ 

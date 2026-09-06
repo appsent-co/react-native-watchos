@@ -37,6 +37,11 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     private let hostRef = HostRef()
     private var notificationObservers: [NSObjectProtocol] = []
     private var hasLoadedOnce = false
+    // Dev server (host, port) of the last HTTP bundle URL passed to
+    // `loadBundle(from:)`. Console logs are POSTed to this server's
+    // `/__watchos_log` so they land in the Metro that served the bundle,
+    // even when it isn't on the default 127.0.0.1:8081. nil for file://.
+    private var devServer: (host: String, port: Int)?
 
     public init() {
         let host = RNWHermesHost()
@@ -87,9 +92,19 @@ public final class ReactNativeWatchOSHost: ObservableObject {
 
         host.onConsoleLog = { [weak self] level, message in
         // TODO: Prod build error reporting
-        self?.lastErrorAt = Date()
+        // Only error-level logs drive the toast (see `lastErrorAt`);
+        // a plain console.log must not raise it.
+        if level == .error {
+            self?.lastErrorAt = Date()
+        }
         #if DEBUG
-            Self.reportToMetro(level: Self.levelName(level), message: message)
+            let server = self?.devServer
+            Self.reportToMetro(
+                level: Self.levelName(level),
+                message: message,
+                serverHost: server?.host ?? "127.0.0.1",
+                port: server?.port ?? 8081
+            )
 #endif
         }
         host.onCommit = { [weak self] snapshot in
@@ -152,6 +167,41 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         Bundle.main.url(forResource: name, withExtension: "jsbundle")
     }
 
+    /// Info.plist keys that override the DEBUG dev-server endpoint used by
+    /// `defaultBundleURL` when the caller passes no explicit `host:`/`port:`.
+    /// `npx react-native-watchos init` and the config plugin
+    /// (`plugin/src/withWatchInfoPlist.js`) write them into the watch
+    /// target's Info.plist as `$(RNW_DEV_SERVER_HOST)` /
+    /// `$(RNW_DEV_SERVER_PORT)`, so the endpoint becomes an xcodebuild
+    /// argument (`xcodebuild ... RNW_DEV_SERVER_PORT=8082`) or an xcconfig
+    /// line — no Swift edit needed when 8081 is taken by another Metro or
+    /// when a physical watch must reach the Mac's LAN IP. Empty / missing
+    /// values fall back to `127.0.0.1:8081`.
+    public static let devServerHostInfoKey = "RNWDevServerHost"
+    public static let devServerPortInfoKey = "RNWDevServerPort"
+
+    /// Dev-server (host, port) declared in the app's Info.plist via
+    /// `RNWDevServerHost` / `RNWDevServerPort`, or nil for each value that is
+    /// absent or empty (an unset `$(RNW_DEV_SERVER_*)` build setting expands
+    /// to the empty string).
+    public static func infoPlistDevServer(
+        bundle: Bundle = .main
+    ) -> (host: String?, port: Int?) {
+        let info = bundle.infoDictionary ?? [:]
+        let host = (info[devServerHostInfoKey] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawPort = info[devServerPortInfoKey]
+        let port: Int?
+        if let n = rawPort as? Int {
+            port = n
+        } else if let s = rawPort as? String {
+            port = Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            port = nil
+        }
+        return (host?.isEmpty == false ? host : nil, port)
+    }
+
     /// - Parameter entry: Metro entry path (no extension). Defaults to
     ///   `"index.watchos"` so the request becomes `/index.watchos.bundle`,
     ///   which Metro resolves to the literal `index.watchos.{tsx,ts,jsx,js}`
@@ -160,14 +210,24 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     ///   `.watchos.*` extension to in-graph `require`s, not to the entry
     ///   path itself. Monorepo callers can override with e.g.
     ///   `entry: "my-app/index.watchos"`.
+    /// - Parameters host, port: DEBUG dev-server endpoint. `nil` (the
+    ///   default) reads `RNWDevServerHost` / `RNWDevServerPort` from
+    ///   Info.plist (see `infoPlistDevServer`) and falls back to
+    ///   `127.0.0.1:8081`. An explicit argument always wins.
     public static func defaultBundleURL(
         entry: String = "index.watchos",
-        host: String = "127.0.0.1",
-        port: Int = 8081,
+        host: String? = nil,
+        port: Int? = nil,
         name: String = "main"
     ) -> URL {
 #if DEBUG
-        return metroBundleURL(host: host, port: port, entry: entry, dev: true)
+        let plist = infoPlistDevServer()
+        return metroBundleURL(
+            host: host ?? plist.host ?? "127.0.0.1",
+            port: port ?? plist.port ?? 8081,
+            entry: entry,
+            dev: true
+        )
 #else
         guard let url = releaseBundleURL(name: name) else {
             fatalError(
@@ -193,6 +253,7 @@ public final class ReactNativeWatchOSHost: ObservableObject {
             recreateHost()
         }
         hasLoadedOnce = true
+        devServer = Self.devServer(for: url)
         let data: Data
         if url.isFileURL {
             data = try Data(contentsOf: url, options: .mappedIfSafe)
@@ -206,6 +267,14 @@ public final class ReactNativeWatchOSHost: ObservableObject {
             try await evaluate(data: Data(injection.utf8), url: "<rnw-dev-server>")
         }
         try await evaluate(data: data, url: url.absoluteString)
+    }
+
+    /// (host, port) of an HTTP(S) bundle URL; nil for file:// URLs.
+    static func devServer(for url: URL) -> (host: String, port: Int)? {
+        guard let scheme = url.scheme,
+              scheme == "http" || scheme == "https",
+              let host = url.host else { return nil }
+        return (host, url.port ?? (scheme == "https" ? 443 : 8081))
     }
 
     /// Returns nil for non-dev-server URLs — dev-support no-ops when the

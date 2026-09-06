@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
+const { ensureWatchInfoPlist } = require('../plugin/src/withWatchInfoPlist');
+
 const TEMPLATES = path.join(__dirname, '..', 'plugin', 'templates');
 const ENTRY_NAMES = [
   'index.watchos.tsx',
@@ -56,6 +58,7 @@ async function main() {
 
   const targetName = path.basename(created);
   writeContentView(created);
+  writeInfoPlistKeys(created);
   writeEntryFile(cwd);
   patchAppJson(cwd, targetName);
 
@@ -111,6 +114,25 @@ function writeContentView(targetDir) {
   const src = path.join(TEMPLATES, 'ContentView.swift');
   fs.copyFileSync(src, dest);
   console.log(`› Wrote ${path.relative(process.cwd(), dest)}`);
+}
+
+/**
+ * Adds the Info.plist keys the template ContentView / runtime need
+ * (`RNWDevServerHost`, `RNWDevServerPort`, the `NSAllowsLocalNetworking`
+ * ATS exception, `NSMotionUsageDescription`). The config plugin repeats this
+ * on every `expo prebuild`; doing it here too means the keys are visible in
+ * the scaffolded source right away.
+ *
+ * @param {string} targetDir
+ */
+function writeInfoPlistKeys(targetDir) {
+  const { path: plistPath, added } = ensureWatchInfoPlist(targetDir);
+  const rel = path.relative(process.cwd(), plistPath);
+  if (added.length) {
+    console.log(`› Added ${added.join(', ')} to ${rel}`);
+  } else {
+    console.log(`› ${rel} already has the runtime keys — leaving untouched.`);
+  }
 }
 
 /** @param {string} cwd */

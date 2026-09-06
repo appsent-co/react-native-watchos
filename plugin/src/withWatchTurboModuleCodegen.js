@@ -309,16 +309,23 @@ function findSpecFiles(dir) {
 
 function runCodegen({ projectRoot, specFiles, outputDir, libraryName }) {
   // Resolve RN's codegen scripts from the consumer's node_modules so a
-  // pinned `react-native` version drives the format. Both scripts live
-  // in the `react-native` package itself (not `@react-native/codegen`,
-  // which has the combine helper).
-  const combineCli = require.resolve(
-    '@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js',
-    { paths: [projectRoot] }
-  );
+  // pinned `react-native` version drives the format. `generate-specs-cli`
+  // lives in the `react-native` package itself; the combine helper lives
+  // in `@react-native/codegen`, which is a dependency of `react-native`
+  // rather than of the consumer. Under pnpm's strict layout it is only
+  // reachable from the `react-native` package dir (it isn't hoisted to
+  // the project or library root), so resolve it from there, matching the
+  // `react-native` version we just found.
   const generateCli = require.resolve(
     'react-native/scripts/generate-specs-cli.js',
     { paths: [projectRoot] }
+  );
+  const reactNativeDir = path.dirname(
+    require.resolve('react-native/package.json', { paths: [projectRoot] })
+  );
+  const combineCli = require.resolve(
+    '@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js',
+    { paths: [reactNativeDir, projectRoot] }
   );
 
   fs.mkdirSync(outputDir, { recursive: true });

@@ -59,7 +59,13 @@ digital crown rotation and sensory feedback. See
 [`src/modifiers/`](./src/modifiers/) for the full surface.
 
 **JS runtime** — Hermes embedded on watchOS via JSI, with `console.*`,
-timers, `fetch` / `XMLHttpRequest`, and `WebSocket` installed.
+timers, `queueMicrotask`, `fetch` / `XMLHttpRequest`, a WHATWG `WebSocket`
+(subprotocols, React Native's `{ headers }` argument, binary frames as
+`ArrayBuffer`, `addEventListener`, `close(code, reason)`),
+`crypto.getRandomValues` / `randomUUID`
+(`SecRandomCopyBytes`), `TextDecoder` and `Symbol.asyncIterator`
+installed; `atob` / `btoa`, `TextEncoder` and `BigInt` come from Hermes
+itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
 
 **TurboModules** — Create native modules in Swift / Obj-C++ and call
 them from JS with full codegen support.
@@ -76,7 +82,11 @@ terminal.
 **Expo plugin** — Wires the Swift Package into your watch target, runs
 autolinking with a customizable watchOS deployment target, installs the
 Release bundle build phase (`expo export:embed --platform watchos`),
-and runs codegen for the WatchConnectivity spec.
+runs codegen for the WatchConnectivity spec, and keeps the runtime's
+Info.plist keys in `targets/<name>/Info.plist` (dev-server host/port as
+`$(RNW_DEV_SERVER_HOST)` / `$(RNW_DEV_SERVER_PORT)` build settings, the
+`NSAllowsLocalNetworking` ATS exception for physical-watch Metro, the
+motion usage string for shake-to-reload).
 
 ## Customizing the watch target
 
@@ -84,7 +94,10 @@ Icons, display name, Info.plist entries, capabilities, deployment
 target — anything about the watch target itself is governed by
 `expo-target.config.{json,js}` from
 [`@bacons/apple-targets`](https://github.com/EvanBacon/expo-apple-targets).
-This package only owns the runtime side.
+This package only owns the runtime side (plus the few Info.plist keys it
+needs, added only when missing — see
+[Dev-server endpoint](https://appsent-co.github.io/react-native-watchos/expo-plugin#dev-server-endpoint)
+for pointing a DEBUG build at another Metro port or a physical watch).
 
 ## Example
 

@@ -76,6 +76,14 @@ watch target in the pbxproj, this plugin:
 3. Wires the product into the watch target's `Frameworks` build phase.
 4. Relies on SPM's built-in handling to embed `Hermes.xcframework` (the
    dynamic JS engine) into the watch app.
+5. Adds the Info.plist keys the runtime's DEBUG path reads to
+   `targets/<name>/Info.plist` when missing (`src/withWatchInfoPlist.js`):
+   `RNWDevServerHost` / `RNWDevServerPort` as `$(RNW_DEV_SERVER_HOST)` /
+   `$(RNW_DEV_SERVER_PORT)` so the Metro endpoint is an `xcodebuild`
+   argument, `NSAppTransportSecurity.NSAllowsLocalNetworking = true` so a
+   physical watch can fetch the plain-http bundle from the Mac's LAN IP,
+   and `NSMotionUsageDescription` for the shake-to-reload gesture.
+   `npx react-native-watchos init` writes the same keys up front.
 
 The Hermes XCFramework is prebuilt and shipped inside the npm tarball at
 `build/xcframework/Hermes.xcframework`. No `npm install` post-build steps
@@ -85,7 +93,9 @@ required.
 
 - It does not create the watch target itself. `@bacons/apple-targets`
   handles that with `expo-target.config.json` — bundle ID, signing,
-  deployment target, Info.plist, asset catalogs all flow through there.
+  deployment target, asset catalogs and the rest of Info.plist all flow
+  through there (the runtime keys above are the only ones this plugin
+  touches, and only when absent).
 - It does not bundle JS for the watch app — currently the Hermes runtime
   loads JS dynamically from a URL you provide. (Bundled JS support is a
   future enhancement.)

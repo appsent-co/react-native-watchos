@@ -30,7 +30,8 @@ title: Architecture
    `0.32.x`.
 2. **C++/Obj-C++ bridge** — Hosts Hermes, owns the TurboModule
    registry, implements JSI shims (`fetch`, `XMLHttpRequest`,
-   `WebSocket`, timers, `console`), and routes UI commands to the
+   `WebSocket`, timers, `console` — see
+   [Runtime globals](./runtime-globals)), and routes UI commands to the
    Swift layer.
 3. **Swift (SwiftUI)** — Reads the shadow tree snapshot, looks up
    each node in `ViewRegistry`, applies its props via

@@ -4,5 +4,14 @@
   <dict>
     <key>NSMotionUsageDescription</key>
     <string>Detects a shake gesture to open the dev menu.</string>
+    <key>RNWDevServerHost</key>
+    <string>$(RNW_DEV_SERVER_HOST)</string>
+    <key>RNWDevServerPort</key>
+    <string>$(RNW_DEV_SERVER_PORT)</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsLocalNetworking</key>
+      <true/>
+    </dict>
   </dict>
 </plist>

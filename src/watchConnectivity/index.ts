@@ -25,7 +25,7 @@
 //
 //   sub.remove();
 
-import NativeWatchConnectivity from './specs/NativeWatchConnectivity';
+import NativeWatchConnectivity from '../specs/NativeWatchConnectivity';
 import { createEventBridge } from './eventBridge';
 import type {
   Dictionary,

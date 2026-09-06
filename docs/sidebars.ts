@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'watch-connectivity',
+    'runtime-globals',
     {
       type: 'category',
       label: 'Native modules',

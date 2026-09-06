@@ -66,7 +66,7 @@ const g = globalThis as unknown as {
   __DEV__?: boolean;
   __RNW_DEV_SERVER?: DevServerInfo;
   __METRO_GLOBAL_PREFIX__?: string;
-  WebSocket?: new (url: string) => unknown;
+  WebSocket?: new (url: string, protocols?: string | string[]) => unknown;
   console: {
     log(...args: unknown[]): void;
     warn(...args: unknown[]): void;
@@ -161,7 +161,10 @@ function connect(dev: DevServerInfo): void {
     `bundleEntry=${encodeURIComponent(dev.entry + '.bundle')}` +
     `&platform=watchos`;
 
-  const WS = g.WebSocket as new (url: string) => {
+  const WS = g.WebSocket as new (
+    url: string,
+    protocols?: string | string[]
+  ) => {
     onopen: ((e: unknown) => void) | null;
     onmessage: ((e: { data: string }) => void) | null;
     onerror: ((e: { message?: string }) => void) | null;
@@ -170,7 +173,6 @@ function connect(dev: DevServerInfo): void {
     close(): void;
   };
 
-  let socket: ReturnType<typeof connectOnce> | null = null;
   let reconnectTimer: number | undefined;
   let attempt = 0;
 
@@ -182,11 +184,13 @@ function connect(dev: DevServerInfo): void {
     attempt += 1;
     reconnectTimer = g.setTimeout(() => {
       reconnectTimer = undefined;
-      socket = connectOnce();
+      connectOnce();
     }, delay);
   };
 
-  const connectOnce = (): { ws: InstanceType<typeof WS> } => {
+  // The runtime's WebSocket shim roots every CONNECTING / OPEN socket, so
+  // no JS reference is kept.
+  const connectOnce = (): void => {
     const ws = new WS(wsURL);
     let open = false;
 
@@ -280,14 +284,7 @@ function connect(dev: DevServerInfo): void {
       open = false;
       scheduleReconnect();
     };
-
-    return { ws };
   };
 
-  socket = connectOnce();
-  // Touch `socket` to keep TS happy — the reference is held implicitly
-  // by the WebSocket itself (URLSession retains the task), but we want
-  // a JS reference too so it isn't collected if the runtime ever adds a
-  // GC roundtrip beyond the WHATWG spec.
-  (g as { __RNW_HMR_SOCKET?: typeof socket }).__RNW_HMR_SOCKET = socket;
+  connectOnce();
 }

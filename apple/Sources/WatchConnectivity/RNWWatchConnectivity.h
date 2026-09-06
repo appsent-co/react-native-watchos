@@ -12,7 +12,8 @@
 // by standard RN codegen at `pod install` (driven by this package's
 // `codegenConfig`). On watchOS it's produced by
 // `withWatchTurboModuleCodegen`, which scans library specs from
-// `node_modules/@appsent-co/react-native-watchos/src/watchConnectivity/specs/`.
+// `node_modules/@appsent-co/react-native-watchos/src/specs/` (every
+// `Native*.ts` there shares this header).
 #import "RNWatchConnectivitySpec.h"
 
 NS_ASSUME_NONNULL_BEGIN

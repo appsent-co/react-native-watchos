@@ -1,0 +1,12 @@
+# Generate a C++ raw string from the exact authored JavaScript bytes.
+if(NOT DEFINED INPUT OR NOT DEFINED OUTPUT OR NOT DEFINED SYMBOL)
+    message(FATAL_ERROR "INPUT, OUTPUT and SYMBOL are required")
+endif()
+file(READ "${INPUT}" source)
+string(FIND "${source}" ")RNWJS\"" delimiter_position)
+if(NOT delimiter_position EQUAL -1)
+    message(FATAL_ERROR "JavaScript contains the embedding delimiter")
+endif()
+get_filename_component(output_directory "${OUTPUT}" DIRECTORY)
+file(MAKE_DIRECTORY "${output_directory}")
+file(WRITE "${OUTPUT}" "// Generated from ${INPUT}; do not edit.\n#pragma once\nstatic constexpr const char *${SYMBOL} = R\"RNWJS(${source})RNWJS\";\n")

@@ -3,10 +3,10 @@ import { TurboModuleRegistry } from 'react-native';
 
 // Shipped from the library so iOS RN codegen (driven by the package-level
 // `codegenConfig` in `package.json`) discovers it from
-// `node_modules/@appsent-co/react-native-watchos/src/watchConnectivity/specs/`. The
-// watch-side codegen plugin (`withWatchTurboModuleCodegen`) ALSO scans
-// this directory so the same spec produces the watch target's umbrella
-// header.
+// `node_modules/@appsent-co/react-native-watchos/src/specs/`. The watch-side
+// codegen plugin (`withWatchTurboModuleCodegen`) ALSO scans this directory
+// so the same specs produce the watch target's umbrella header. Every
+// `Native*.ts` here lands in one library (`RNWatchConnectivitySpec`).
 
 export interface SessionState {
   activationState: string; // 'notActivated' | 'inactive' | 'activated'

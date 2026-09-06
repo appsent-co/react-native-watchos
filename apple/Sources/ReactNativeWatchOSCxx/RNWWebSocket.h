@@ -9,11 +9,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Install a minimal WHATWG-shaped `WebSocket` on `globalThis`, backed by
-/// `NSURLSessionWebSocketTask`. Surface is what Metro's HMRClient calls:
-/// `new WebSocket(url)`, `onopen`/`onmessage`/`onerror`/`onclose`,
-/// `send(string)`, `close()`. Binary frames and `addEventListener` are not
-/// implemented; `send(ArrayBuffer)` falls back to UTF-8 decoding.
+/// Install a WHATWG `WebSocket` on `globalThis`, backed by
+/// `NSURLSessionWebSocketTask`. Native is a thin transport (the private
+/// `__RNW_ws_connect` factory); the DOM surface, plus React Native's
+/// `(url, protocols, { headers })` form, is a JS shim evaluated at install
+/// time. Binary frames arrive as `ArrayBuffer`. Full surface and deviations:
+/// docs/docs/runtime-globals.md.
 void rnwInstallWebSocket(facebook::jsi::Runtime &rt,
                          facebook::react::RNWJSQueue jsQueue);
 

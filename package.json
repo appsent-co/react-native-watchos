@@ -13,6 +13,7 @@
       "default": "./metro-config.js"
     },
     "./renderer": "./src/index.ts",
+    "./polyfills": "./src/polyfills.ts",
     "./dev-support": "./src/devSupport/index.ts",
     "./watch-connectivity": "./src/watchConnectivity/index.ts",
     "./app.plugin.js": "./app.plugin.js",
@@ -21,7 +22,7 @@
   "codegenConfig": {
     "name": "RNWatchConnectivitySpec",
     "type": "modules",
-    "jsSrcsDir": "src/watchConnectivity/specs"
+    "jsSrcsDir": "src/specs"
   },
   "files": [
     "app.plugin.js",
@@ -43,6 +44,7 @@
   "scripts": {
     "build:xcframework": "./scripts/build-xcframework.sh",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.mjs",
     "clean": "del-cli build/xcframework example/ios",
     "docs": "pnpm --filter react-native-watchos-docs start",
     "docs:build": "pnpm --filter react-native-watchos-docs build",
@@ -91,13 +93,16 @@
   },
   "dependencies": {
     "@expo/config-plugins": "^54.0.0",
+    "@expo/plist": "^0.4.8",
     "react-reconciler": "0.32.0",
     "whatwg-fetch": "^3.6.20"
   },
   "sideEffects": [
     "src/polyfills.ts",
     "src/setupConsole.ts",
-    "src/setupSelfGlobal.ts"
+    "src/setupSelfGlobal.ts",
+    "src/setupWebGlobals.ts",
+    "src/setupCrypto.ts"
   ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",

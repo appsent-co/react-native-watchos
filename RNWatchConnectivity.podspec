@@ -5,11 +5,12 @@ package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
 Pod::Spec.new do |s|
   s.name           = 'RNWatchConnectivity'
   s.version        = package['version']
-  s.summary        = 'React Native bridge for Apple WatchConnectivity (WCSession).'
+  s.summary        = 'WatchConnectivity module for @appsent-co/react-native-watchos.'
   s.description    = <<~DESC
-    Exposes Apple's WatchConnectivity (WCSession) framework to JavaScript
-    on both the iOS host app and its paired watchOS app. Same TurboModule,
-    same JS API, autolinked on both platforms.
+    The package's autolinked WatchConnectivity module, compiled into both the iOS
+    host app and its paired watchOS app from one podspec:
+      * RNWWatchConnectivity — Apple's WatchConnectivity (WCSession).
+    Same TurboModule, same JS API, autolinked on both platforms.
   DESC
   s.license        = package['license']
   s.author         = package['author']
@@ -24,6 +25,9 @@ Pod::Spec.new do |s|
   #                  target. Same sources, two consumers.
   s.platforms      = { :ios => '15.0', :watchos => '9.0' }
 
+  # Autolinking admits one podspec per npm package, so every native module
+  # the package ships lives here, sharing the one codegen library
+  # `RNWatchConnectivitySpec` built from `src/specs/Native*.ts`.
   s.source_files   = [
     'apple/Sources/WatchConnectivity/RNWWatchConnectivity.mm',
     'apple/Sources/WatchConnectivity/RNWWatchConnectivity.h',
@@ -32,7 +36,6 @@ Pod::Spec.new do |s|
     'apple/Sources/WatchConnectivity/RNWWatchConnectivity.h',
   ]
 
-  # WatchConnectivity is a system framework available on both platforms.
   s.frameworks     = 'WatchConnectivity'
 
   # iOS slice deps. Each scoped to `:ios` so `pod install` doesn't try

@@ -15,6 +15,10 @@ import './setupConsole';
 // import. See setupSelfGlobal.ts for why.
 import './setupSelfGlobal';
 
+// Language / scheduling globals first, so everything after sees the full set.
+import './setupWebGlobals';
+import './setupCrypto';
+
 // WHATWG `fetch` + `Headers` + `Request` + `Response` polyfill. Reads
 // `globalThis.XMLHttpRequest`, which RNWHermesHost installs via
 // `rnwInstallXHR` before the bundle is evaluated.
@@ -38,7 +42,6 @@ interface ErrorUtilsShape {
 const g = globalThis as unknown as {
   setImmediate?: unknown;
   clearImmediate?: unknown;
-  queueMicrotask?: (cb: () => void) => void;
   setTimeout?: (cb: (...args: unknown[]) => void, ms: number) => number;
   reportError?: (error: unknown) => void;
   console?: {
@@ -48,21 +51,16 @@ const g = globalThis as unknown as {
   ErrorUtils?: ErrorUtilsShape;
 };
 
-// Schedule a continuation as fast as possible. The watch host's
-// `RNWHermesHost.installTimers` registers `setTimeout` but NOT
-// `queueMicrotask`, so we prefer queueMicrotask when present and
-// fall back to `setTimeout(fn, 0)` otherwise. Without this fallback
-// callbacks were silently dropped — the runtime didn't crash but no
-// render work ever ran.
+// `setImmediate` is a macrotask in React Native and React's scheduler picks
+// it first when present, so it must not ride `queueMicrotask`: a microtask
+// `setImmediate` runs ahead of pending timers and can starve them.
 function scheduleSoon(fn: () => void): void {
-  if (typeof g.queueMicrotask === 'function') {
-    g.queueMicrotask(fn);
-  } else if (typeof g.setTimeout === 'function') {
+  if (typeof g.setTimeout === 'function') {
     g.setTimeout(fn, 0);
   } else {
     throw new Error(
-      'No microtask scheduling primitive available (queueMicrotask / setTimeout). ' +
-        'The watch host bootstrap should install at least one.'
+      'No scheduling primitive available (setTimeout). ' +
+        'The watch host bootstrap should install it.'
     );
   }
 }

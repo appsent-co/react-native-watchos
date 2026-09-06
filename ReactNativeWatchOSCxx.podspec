@@ -58,8 +58,11 @@ Pod::Spec.new do |s|
   s.preserve_paths       = 'build/xcframework/ReactNativeWatchOSCxx.xcframework'
   s.vendored_frameworks  = 'build/xcframework/ReactNativeWatchOSCxx.xcframework'
 
-  # JSI is C++; consumers must link libc++ since the static archive doesn't.
-  s.libraries = 'c++'
+  # The static archive references libc++ (JSI) and system ICU (TextDecoder).
+  s.libraries = 'c++', 'icucore'
+
+  # SecRandomCopyBytes (RNWCrypto.mm); the archive only references it.
+  s.frameworks = 'Security'
 
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',

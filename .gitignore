@@ -52,3 +52,6 @@ docs/.cache-loader/
 
 # Claude
 .claude/
+
+# Written by @bacons/apple-targets from expo-target.config on every prebuild.
+example/targets/*/generated.entitlements
