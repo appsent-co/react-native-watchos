@@ -89,6 +89,8 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
 set(WITH_GFLAGS OFF CACHE BOOL "")
 set(WITH_GTEST OFF CACHE BOOL "")
 set(BUILD_TESTING OFF CACHE BOOL "")
+# double-conversion still declares CMake 2.8.12; CMake 4 removed that policy floor.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(double-conversion boost fast_float)
 
 # fmt: populate sources only, do NOT use fmt's CMakeLists.txt. fmt 11.0.2's
