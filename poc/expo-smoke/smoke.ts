@@ -40,6 +40,15 @@ async function run() {
     check(module.getState() === 0, 'companion starts with fresh native state');
     check(module.runtimeIsolation(), 'companion runtime queue isolation');
     module.setState(777);
+    check(
+      module.legacyState(null) === 0,
+      'companion legacy registry starts fresh'
+    );
+    module.legacyState(888);
+    check(
+      (await module.legacyPermission(true)).granted === true,
+      'companion permission grant'
+    );
     const shared = new module.SharedCounter(999);
     const events: number[] = [];
     const subscription = module.addListener(
@@ -60,6 +69,14 @@ async function run() {
           'SharedObject stays in its runtime'
         );
         check(events.length === 1, 'events stay in their runtime');
+        check(
+          module.legacyState(null) === 888,
+          'legacy registry survives other host reloads'
+        );
+        check(
+          (await module.legacyPermission(false)).granted === true,
+          'permission state stays in its runtime'
+        );
         check(
           (await module.delayedDouble(51)) === 102,
           'companion scheduler remains live'
@@ -128,6 +145,45 @@ async function run() {
   check(releasedError, 'SharedObject release');
   check(module.getState() === 0, 'fresh native state on reload');
   module.setState(42);
+  check(module.legacyState(null) === 0, 'fresh legacy registry on reload');
+  check(module.legacyState(123) === 123, 'legacy protocol lookup');
+  check(module.legacyFileSystem(), 'legacy file system helpers');
+  const initialPermission = await module.legacyPermission(false);
+  check(
+    initialPermission.status === 'undetermined' &&
+      !initialPermission.granted &&
+      initialPermission.canAskAgain &&
+      initialPermission.expires === 'never',
+    'fresh permission requester'
+  );
+  const permission = await module.legacyPermission(true);
+  check(
+    permission.status === 'granted' &&
+      permission.granted &&
+      (await module.legacyPermission(false)).granted,
+    'legacy permission resolution'
+  );
+  for (const [method, code, label] of [
+    [
+      'legacyMissingPermission',
+      'E_PERMISSIONS_UNKNOWN',
+      'unknown permission rejection',
+    ],
+    [
+      'legacyNilPermissionService',
+      'E_NO_PERMISSIONS',
+      'missing permission service rejection',
+    ],
+  ]) {
+    let rejected = false;
+    try {
+      await module[method]();
+    } catch (error) {
+      rejected = (error as { code?: string }).code === code;
+    }
+    check(rejected, label);
+  }
+  check(await module.persistentLog(), 'persistent file logging');
 
   const events: number[] = [];
   const subscription = module.addListener(

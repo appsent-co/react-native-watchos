@@ -35,3 +35,8 @@ included in the production native pods.
 The simultaneous-runtime assertions cover direct Expo JSI modules. Existing
 bridge-style React Native modules use process-global bridge state and are outside
 this isolation proof.
+
+Legacy service checks exercise per-host protocol lookup and requester state,
+permission resolution and rejection, sandbox file I/O, and persistent file logging.
+A weak registry inventory must be empty after all four hosts are destroyed.
+The permission requester is a fixture; the smoke run does not request an OS permission.

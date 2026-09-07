@@ -1,6 +1,6 @@
 --- a/ios/Core/AppContext.swift
 +++ b/ios/Core/AppContext.swift
-@@ -1,11 +1,14 @@
+@@ -1,4 +1,7 @@
 +import Foundation
 +#if !EXPO_MODULES_CORE_HEADLESS
  @preconcurrency internal import React
@@ -8,22 +8,14 @@
  import ExpoModulesJSI
  
  /**
-  The app context is an interface to a single Expo app.
-  */
- @objc(EXAppContext)
--public final class AppContext: NSObject, EXAppContextProtocol, @unchecked Sendable {
-+public final class AppContext: NSObject, @unchecked Sendable {
-   internal static func create() -> AppContext {
-     let appContext = AppContext()
- 
-@@ -40,6 +43,7 @@
-    */
-   private var isModuleRegistryInitialized: Bool = false
+@@ -46,6 +49,7 @@
+   @objc
+   public weak var legacyModuleRegistry: EXModuleRegistry?
  
 +#if !EXPO_MODULES_CORE_HEADLESS
    /**
-    The legacy module registry with modules written in the old-fashioned way.
-    */
+    React bridge of the context's app. Can be `nil` when the bridge
+    hasn't been propagated to the bridge modules yet,
 @@ -59,6 +63,7 @@
     */
    private var hostWrapper: ExpoHostWrapper?
@@ -40,36 +32,40 @@
    public typealias UIRuntimeFactory = (
      _ appContext: AppContext,
      _ pointerValue: JavaScriptValue,
-@@ -133,6 +139,7 @@
-     return "\(abs(ObjectIdentifier(moduleRegistry).hashValue))"
+@@ -120,6 +126,7 @@
+     }
    }
  
 +#endif
    /**
-    Code signing entitlements for code signing
+    The application identifier that is used to distinguish between different `RCTHost`.
+    It might be equal to `nil`, meaning we couldn't obtain the Id for the current app.
+@@ -127,10 +134,14 @@
     */
-@@ -164,14 +171,18 @@
+   @objc
+   public var appIdentifier: String? {
++#if EXPO_MODULES_CORE_HEADLESS
++    return nil
++#else
+     guard let moduleRegistry = reactBridge?.moduleRegistry else {
+       return nil
+     }
+     return "\(abs(ObjectIdentifier(moduleRegistry).hashValue))"
++#endif
+   }
+ 
+   /**
+@@ -164,7 +175,9 @@
      super.init()
  
      self.moduleRegistry.register(module: JSLoggerModule(appContext: self), name: nil)
 +#if !EXPO_MODULES_CORE_HEADLESS
      listenToClientAppNotifications()
--  }
--
 +#endif
-+  }
-+
-+#if !EXPO_MODULES_CORE_HEADLESS
-   public convenience init(legacyModuleRegistry: Any, config: AppContextConfig? = nil) {
-     self.init(config: config)
-     self.legacyModuleRegistry = legacyModuleRegistry as? EXModuleRegistry
    }
  
-+#endif
-   @objc
-   public convenience override init() {
-     self.init(config: nil)
-@@ -189,6 +200,7 @@
+   public convenience init(legacyModuleRegistry: Any, config: AppContextConfig? = nil) {
+@@ -189,6 +202,7 @@
      return self
    }
  
@@ -77,7 +73,7 @@
    // MARK: - UI
  
    /**
-@@ -201,6 +213,7 @@
+@@ -201,6 +215,7 @@
      }
    }
  
@@ -85,15 +81,29 @@
    // MARK: - Running on specific queues
  
    /**
-@@ -237,6 +250,7 @@
-     }
+@@ -246,11 +261,13 @@
+     return legacyModuleRegistry?.getModuleImplementingProtocol(moduleProtocol) as? ModuleProtocol ?? moduleRegistry.getModule(implementing: ModuleProtocol.self)
    }
  
 +#if !EXPO_MODULES_CORE_HEADLESS
-   // MARK: - Legacy modules
- 
    /**
-@@ -299,6 +313,7 @@
+    Provides access to app's constants.
+    */
+   public lazy var constants: EXConstantsInterface? = ConstantsProvider.shared
+ 
++#endif
+   /**
+    Provides access to the file system utilities. Can be overridden if the app should use different different directories or file permissions.
+    For instance, Expo Go uses sandboxed environment per project where the cache and document directories must be scoped.
+@@ -263,6 +280,7 @@
+    */
+   public lazy var permissions: EXPermissionsService? = EXPermissionsService()
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Provides access to the image loader from legacy module registry.
+    */
+@@ -299,6 +317,7 @@
     */
    public var utilities: Utilities? = Utilities()
  
@@ -101,7 +111,7 @@
    /**
     Provides an event emitter that is compatible with the legacy interface.
     - Deprecated as of Expo SDK 55. May be removed in the future releases.
-@@ -308,6 +323,7 @@
+@@ -308,6 +327,7 @@
      return LegacyEventEmitterCompat(appContext: self)
    }
  
@@ -109,7 +119,7 @@
    /**
     Starts listening to `UIApplication` notifications.
     */
-@@ -357,6 +373,7 @@
+@@ -357,6 +377,7 @@
      }
    }
  
@@ -117,7 +127,7 @@
    /**
     Returns a bool whether the module with given name is registered in this context.
     */
-@@ -399,6 +416,7 @@
+@@ -399,6 +420,7 @@
    public func registerNativeModules(provider: ModulesProvider) {
      useModulesProvider(provider)
  
@@ -125,7 +135,7 @@
      // TODO: Make `registerNativeViews` thread-safe
      if Thread.isMainThread {
        MainActor.assumeIsolated {
-@@ -409,8 +427,10 @@
+@@ -409,8 +431,10 @@
          self?.registerNativeViews()
        }
      }
@@ -138,7 +148,7 @@
    /**
     Registers native views defined by registered native modules.
     - Note: It should stay private as `registerNativeModules` should be the only call site.
-@@ -426,6 +446,7 @@
+@@ -426,6 +450,7 @@
      }
    }
  
@@ -146,20 +156,7 @@
    // MARK: - Runtime
  
    /**
-@@ -475,10 +496,12 @@
-     // runtime, so its teardown owns the app context's `destroy()`.
-     installer.installAppContextNativeState(on: coreObject, ownsLifecycle: true)
- 
-+#if !EXPO_MODULES_CORE_HEADLESS
-     if let appIdentifier {
-       coreObject.defineProperty("__expo_app_identifier__", value: appIdentifier)
-     }
- 
-+#endif
-     try coreModuleHolder.definition.decorate(object: coreObject, appContext: self)
- 
-     // Install `global.expo.EventEmitter`.
-@@ -499,6 +522,7 @@
+@@ -499,6 +524,7 @@
      try installer.installExpoModulesHostObject()
    }
  
@@ -167,7 +164,7 @@
    @MainActor
    internal func prepareUIRuntime() throws {
      // This function is @MainActor, but the installer APIs require @JavaScriptActor.
-@@ -603,6 +627,7 @@
+@@ -603,6 +629,7 @@
      return nil
    }
  
@@ -175,7 +172,7 @@
    /**
     Unsets runtime objects that we hold for each module.
     */
-@@ -711,11 +736,13 @@
+@@ -711,11 +738,13 @@
      }
    }
  
@@ -189,7 +186,7 @@
    // MARK: - Statics
  
    /**
-@@ -788,6 +815,7 @@
+@@ -788,6 +817,7 @@
      return String(characters)
    }
  
@@ -197,7 +194,7 @@
    public func reloadAppAsync(_ reason: String = "Reload from appContext") {
      if moduleRegistry.has(moduleWithName: "ExpoGo") {
        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "EXReloadActiveAppRequest"), object: nil)
-@@ -802,8 +830,10 @@
+@@ -802,8 +832,10 @@
        }
      }
    }
@@ -208,7 +205,7 @@
  /**
   Reference-type store for cached worklet prototypes. Needed because JavaScriptObject
   is ~Copyable and cannot be stored in a Dictionary; we cache via JavaScriptValue
-@@ -814,6 +844,7 @@
+@@ -814,6 +846,7 @@
    var store: [ObjectIdentifier: JavaScriptValue] = [:]
  }
  
@@ -216,14 +213,6 @@
  // MARK: - Public exceptions
  
  public class JavaScriptClassNotFoundException: Exception, @unchecked Sendable {
-@@ -841,3 +872,7 @@
- // Deprecated since v1.0.0
- @available(*, deprecated, renamed: "Exceptions.RuntimeLost")
- public typealias RuntimeLostException = Exceptions.RuntimeLost
-+
-+#if !EXPO_MODULES_CORE_HEADLESS
-+extension AppContext: EXAppContextProtocol {}
-+#endif
 --- a/ios/Core/Modules/ModuleDefinition.swift
 +++ b/ios/Core/Modules/ModuleDefinition.swift
 @@ -20,7 +20,9 @@
@@ -440,27 +429,19 @@
  
 --- a/ios/JS/EXJSIInstaller.mm
 +++ b/ios/JS/EXJSIInstaller.mm
-@@ -1,15 +1,23 @@
+@@ -1,6 +1,5 @@
  // Copyright 2018-present 650 Industries. All rights reserved.
  
-+#if !EXPO_MODULES_CORE_HEADLESS
- #import <ExpoModulesCore/BridgelessJSCallInvoker.h>
-+#endif
-+#if !EXPO_MODULES_CORE_HEADLESS
+-#import <ExpoModulesCore/BridgelessJSCallInvoker.h>
  #import <ExpoModulesCore/EXAppContextProtocol.h>
-+#endif
  #import <ExpoModulesCore/EXJSIInstaller.h>
  #import <ExpoModulesCore/SharedObject.h>
- #import <ExpoModulesCore/SharedRef.h>
+@@ -8,8 +7,6 @@
  #import <ExpoModulesCore/EventEmitter.h>
  #import <ExpoModulesCore/NativeModule.h>
  
-+#if !EXPO_MODULES_CORE_HEADLESS
- #import <react/renderer/runtimescheduler/RuntimeScheduler.h>
-+#endif
-+#if !EXPO_MODULES_CORE_HEADLESS
- #import <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>
-+#endif
+-#import <react/renderer/runtimescheduler/RuntimeScheduler.h>
+-#import <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>
  
  namespace jsi = facebook::jsi;
  
@@ -480,49 +461,30 @@
  }
 +
 +#endif
---- a/ios/Core/Logging/LogHandlers.swift
-+++ b/ios/Core/Logging/LogHandlers.swift
-@@ -10,7 +10,11 @@
- }
- 
- public func createPersistentFileLogHandler(category: String) -> LogHandler {
-+#if EXPO_MODULES_CORE_HEADLESS
-+  return createOSLogHandler(category: category)
-+#else
-   return PersistentFileLogHandler(category: category)
-+#endif
- }
- 
- /**
-@@ -45,6 +49,7 @@
-   }
- }
- 
-+#if !EXPO_MODULES_CORE_HEADLESS
- /**
-  Log handler that writes all logs to a file using PersistentFileLog
-  */
-@@ -59,3 +64,5 @@
-     persistentLog.appendEntry(entry: message)
-   }
- }
-+
-+#endif
---- a/ios/Core/Promise.swift
-+++ b/ios/Core/Promise.swift
-@@ -10,6 +10,7 @@
-   public var resolver: ResolveClosure
-   public var rejecter: RejectClosure
- 
-+#if !EXPO_MODULES_CORE_HEADLESS
-   /**
-    The resolver that is compatible with the legacy `EXPromiseResolveBlock`.
-    Necessary in some places not converted to Swift, such as `EXPermissionsMethodsDelegate`.
-@@ -30,6 +31,7 @@
+--- a/ios/Core/Logging/PersistentFileLog.swift
++++ b/ios/Core/Logging/PersistentFileLog.swift
+@@ -120,11 +120,9 @@
+   private func appendTextToFile(text: String) throws {
+     if let data = text.data(using: .utf8) {
+       if let fileHandle = FileHandle(forWritingAtPath: filePath) {
+-        try EXUtilities.catchException {
+-          fileHandle.seekToEndOfFile()
+-          fileHandle.write(data)
+-          fileHandle.closeFile()
+-        }
++        defer { try? fileHandle.close() }
++        try fileHandle.seekToEnd()
++        try fileHandle.write(contentsOf: data)
+       }
      }
    }
+--- a/ios/Legacy/Services/Permissions/EXPermissionsService.m
++++ b/ios/Legacy/Services/Permissions/EXPermissionsService.m
+@@ -1,7 +1,5 @@
+ // Copyright 2016-present 650 Industries. All rights reserved.
  
-+#endif
-   public func resolve(_ value: Any? = nil) {
-     // Using the dynamic type for Any is the slowest path, but we need this for backwards compatibility.
-     // Translate Swift nil to NSNull so `anyToJavaScriptValue` resolves it to JS `null` rather than `undefined`.
+-#import <ExpoModulesCore/EXUtilitiesInterface.h>
+-#import <ExpoModulesCore/EXUtilities.h>
+ #import <ExpoModulesCore/EXPermissionsService.h>
+ #import <React/RCTLog.h>
+ 

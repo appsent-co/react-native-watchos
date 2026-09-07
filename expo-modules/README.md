@@ -15,6 +15,12 @@ Only two ordinary unified patches are maintained:
   settings to Expo's SwiftPM package and framework builder. It changes no runtime
   implementation files.
 
+The watch build also compiles Expo's legacy module registry, promise callbacks,
+file-system helpers, and permission-requester service. Each host owns its service
+instances. Persistent file logging uses throwing Foundation file operations,
+removing its dependency on the UI-coupled `EXUtilities` exception wrapper. The
+permission service's unused UI utility imports are removed as well.
+
 These are local compatibility patches, not yet accepted upstream. Updating their
 pinned source packages requires reviewing and testing the diffs against the new
 release. No copied upstream implementation is checked into this repository.
@@ -45,7 +51,8 @@ records the tested app Expo range. To support another Expo patch, test an actual
 packed consumer app before widening that range and the peer dependency.
 
 The runtime smoke fixture checks functions, promises, events, shared objects,
-reloads, and simultaneous hosts. Thread tests cover affinity, reentrancy, nested
+reloads, simultaneous hosts, legacy service isolation, permission errors, and
+file/log I/O. Thread tests cover affinity, reentrancy, nested
 run-loop continuations, and concurrent shutdown. The consumer gate builds stock
 iOS Expo alongside the watch integration and runs the watch module fixture.
 Device architectures are compiled; physical-watch execution is separate.

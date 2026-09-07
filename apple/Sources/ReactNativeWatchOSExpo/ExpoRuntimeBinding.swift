@@ -9,6 +9,7 @@ public final class ExpoRuntimeBinding: NSObject, RNWRuntimeBinding {
     private nonisolated(unsafe) static var schedulerKey: UInt8 = 0
     private let provider: ModulesProvider
     private var context: AppContext?
+    private var legacyRegistry: EXModuleRegistry?
     private var installed = false
 
     public init(provider: ModulesProvider) {
@@ -20,7 +21,12 @@ public final class ExpoRuntimeBinding: NSObject, RNWRuntimeBinding {
         precondition(!installed, "An ExpoRuntimeBinding cannot be reused across Hermes runtimes.")
         installed = true
         let scheduler = RNWExpoScheduler(schedule: schedule)
-        let context = AppContext()
+        // Keep service instances local to this host; no global legacy provider.
+        let registry = EXModuleRegistry(internalModules: [], exportedModules: [], singletonModules: [])
+        let context = AppContext(legacyModuleRegistry: registry)
+        if let fileSystem = context.fileSystem { registry.register(fileSystem) }
+        registry.initialize()
+        legacyRegistry = registry
         context.useModulesProvider(provider)
         self.context = context
         context.setRuntime(runtime, scheduler: scheduler.handle,
@@ -37,6 +43,7 @@ public final class ExpoRuntimeBinding: NSObject, RNWRuntimeBinding {
         // after teardown, including work already running on an async module queue.
         context?.destroy()
         context = nil
+        legacyRegistry = nil
     }
 }
 

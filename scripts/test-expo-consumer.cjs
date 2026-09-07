@@ -355,7 +355,7 @@ function appFiles(consumerRoot, enabled) {
   );
   write(
     path.join(consumerRoot, 'index.watchos.js'),
-    `import '@appsent-co/react-native-watchos/polyfills';\nimport fixture from '@rnw-test/expo-module';\nconst answer = fixture.answer();\nif (answer === 42) {\n  console.log('RNW_EXPO_CONSUMER_PASS:42');\n} else {\n  console.error('RNW_EXPO_CONSUMER_FAIL:' + String(answer));\n}\n`
+    `import '@appsent-co/react-native-watchos/polyfills';\nimport fixture from '@rnw-test/expo-module';\nconst answer = fixture.answer();\nif (answer === 42 && fixture.legacyServices()) {\n  console.log('RNW_EXPO_CONSUMER_PASS:42');\n} else {\n  console.error('RNW_EXPO_CONSUMER_FAIL:' + String(answer));\n}\n`
   );
   write(
     path.join(consumerRoot, 'src', 'specs', 'NativeUnrelated.js'),

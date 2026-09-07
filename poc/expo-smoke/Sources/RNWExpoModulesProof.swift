@@ -25,12 +25,111 @@ private final class ProofSharedCounter: SharedObject {
   }
 }
 
+// A fake requester exercises the actual Expo permission service without asking
+// for a system permission or presenting UI. Each AppContext owns its requester.
+private final class ProofPermissionRequester: NSObject, EXPermissionsRequester {
+  private let lock = NSLock()
+  private var granted = false
+
+  static func permissionType() -> String { "rnw-proof" }
+
+  func getPermissions() -> [AnyHashable: Any] {
+    lock.lock()
+    defer { lock.unlock() }
+    return ["status": granted ? EXPermissionStatusGranted.rawValue : EXPermissionStatusUndetermined.rawValue]
+  }
+
+  func requestPermissions(resolver resolve: EXPromiseResolveBlock, rejecter reject: EXPromiseRejectBlock) {
+    lock.lock()
+    granted = true
+    lock.unlock()
+    resolve(getPermissions())
+  }
+}
+
+@objc(RNWProofLegacyServiceInterface)
+private protocol ProofLegacyServiceInterface {
+  var value: Int { get set }
+}
+
+private final class ProofLegacyService: NSObject, EXInternalModule, EXModuleRegistryConsumer, ProofLegacyServiceInterface {
+  var value = 0
+  weak var registry: EXModuleRegistry?
+  func setModuleRegistry(_ registry: EXModuleRegistry) { self.registry = registry }
+  static func exportedInterfaces() -> [Protocol] {
+    [NSProtocolFromString("RNWProofLegacyServiceInterface")!]
+  }
+}
+
 /// An ordinary native module compiled only into the smoke app. This source is
 /// intentionally outside RNWExpoModulesCore: it proves that an ordinary Expo
 /// module can import the unmodified `ExpoModulesCore` API and use its real DSL.
 public final class RNWExpoModulesProof: Module {
   private let instanceID = UUID().uuidString
   private var state = 0
+
+  private func checkLegacyFileSystem() throws -> Bool {
+    guard let context = appContext, let fileSystem = context.fileSystem else { return false }
+    let resolved: FileSystemManager? = context.legacyModule(implementing: NSProtocolFromString("EXFileSystemInterface")!)
+    guard resolved === fileSystem else { return false }
+    let directory = URL(fileURLWithPath: fileSystem.cachesDirectory).appendingPathComponent("rnw-proof-" + UUID().uuidString)
+    guard fileSystem.ensureDirExists(withPath: directory.path) else { return false }
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = URL(fileURLWithPath: fileSystem.generatePath(inDirectory: directory.path, withExtension: "txt"))
+    try Data("legacy-file".utf8).write(to: file)
+    let permissions = fileSystem.permissions(forURI: file)
+    let contents = try String(contentsOf: file, encoding: .utf8)
+    return permissions.contains(.read) && permissions.contains(.write)
+      && FileSystemUtilities.isReadableFile(context, file)
+      && contents == "legacy-file"
+  }
+
+  private func checkLegacyState(_ next: Int?) -> Int {
+    let service: ProofLegacyService? = appContext?.legacyModule(implementing: NSProtocolFromString("RNWProofLegacyServiceInterface")!)
+    guard let service, let registry = appContext?.legacyModuleRegistry,
+      service.registry === registry else { return -1 }
+    if let next { service.value = next }
+    return service.value
+  }
+
+  private func checkLegacyPermission(_ ask: Bool, promise: Promise) {
+    if ask {
+      EXPermissionsMethodsDelegate.askForPermission(withPermissionsManager: appContext?.permissions,
+        withRequester: ProofPermissionRequester.self, resolve: promise.legacyResolver, reject: promise.legacyRejecter)
+    } else {
+      EXPermissionsMethodsDelegate.getPermissionWithPermissionsManager(appContext?.permissions,
+        withRequester: ProofPermissionRequester.self, resolve: promise.legacyResolver, reject: promise.legacyRejecter)
+    }
+  }
+
+  private func checkMissingPermission(_ promise: Promise) {
+    EXPermissionsMethodsDelegate.getPermissionWithPermissionsManager(appContext?.permissions,
+      withRequester: NSObject.self, resolve: promise.legacyResolver, reject: promise.legacyRejecter)
+  }
+
+  private func checkNilPermissionService(_ promise: Promise) {
+    EXPermissionsMethodsDelegate.getPermissionWithPermissionsManager(nil,
+      withRequester: ProofPermissionRequester.self, resolve: promise.legacyResolver, reject: promise.legacyRejecter)
+  }
+
+  private func checkPersistentLog() async throws -> Bool {
+    let category = "rnw-proof-" + UUID().uuidString
+    let fileLog = PersistentFileLog(category: category)
+    createPersistentFileLogHandler(category: category).log(type: .info, "handler")
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      fileLog.appendEntry(entry: "direct") { error in
+        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+      }
+    }
+    let reopened = PersistentFileLog(category: category)
+    let persisted = reopened.readEntries() == ["handler", "direct"]
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      reopened.clearEntries { error in
+        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+      }
+    }
+    return persisted && reopened.readEntries().isEmpty
+  }
 
   public func definition() -> ModuleDefinition {
     let instanceID = self.instanceID
@@ -74,6 +173,30 @@ public final class RNWExpoModulesProof: Module {
       return DispatchQueue.main.sync { !runtime.isOnJavaScriptThread() }
     }
 
+    Function("legacyFileSystem") { [weak self] () throws -> Bool in
+      try self?.checkLegacyFileSystem() ?? false
+    }
+
+    Function("legacyState") { [weak self] (next: Int?) -> Int in
+      self?.checkLegacyState(next) ?? -1
+    }
+
+    AsyncFunction("legacyPermission") { [weak self] (ask: Bool, promise: Promise) -> Void in
+      self?.checkLegacyPermission(ask, promise: promise)
+    }
+
+    AsyncFunction("legacyMissingPermission") { [weak self] (promise: Promise) -> Void in
+      self?.checkMissingPermission(promise)
+    }
+
+    AsyncFunction("legacyNilPermissionService") { [weak self] (promise: Promise) -> Void in
+      self?.checkNilPermissionService(promise)
+    }
+
+    AsyncFunction("persistentLog") { [weak self] () async throws -> Bool in
+      try await self?.checkPersistentLog() ?? false
+    }
+
     Function("getState") { [weak self] () -> Int in self?.state ?? -1 }
     Function("setState") { [weak self] (value: Int) -> Void in self?.state = value }
 
@@ -97,7 +220,13 @@ public final class RNWExpoModulesProof: Module {
 
     Function("readShared") { (counter: ProofSharedCounter) -> Int in counter.value }
 
-    OnCreate {
+    OnCreate { [weak self] in
+      if let context = self?.appContext, let registry = context.legacyModuleRegistry {
+        registry.register(ProofLegacyService())
+        registry.initialize()
+        context.permissions?.register([ProofPermissionRequester()])
+        RNWExpoModulesProofLifecycle.recordRegistry(registry)
+      }
       RNWExpoModulesProofLifecycle.recordCreate(instanceID)
     }
 
@@ -116,6 +245,7 @@ public enum RNWExpoModulesProofLifecycle {
   private static let lock = NSLock()
   nonisolated(unsafe) private static var creates = 0
   nonisolated(unsafe) private static var destroys = 0
+  nonisolated(unsafe) private static var registries = NSHashTable<EXModuleRegistry>.weakObjects()
   nonisolated(unsafe) private static var createdIDs: [String] = []
   nonisolated(unsafe) private static var destroyedIDs: [String] = []
 
@@ -123,6 +253,7 @@ public enum RNWExpoModulesProofLifecycle {
     lock.lock()
     creates = 0
     destroys = 0
+    registries.removeAllObjects()
     createdIDs = []
     destroyedIDs = []
     lock.unlock()
@@ -139,6 +270,13 @@ public enum RNWExpoModulesProofLifecycle {
     defer { lock.unlock() }
     return createdIDs.count == 4 && Set(createdIDs).count == 4
       && createdIDs.sorted() == destroyedIDs.sorted()
+      && registries.allObjects.isEmpty
+  }
+
+  fileprivate static func recordRegistry(_ registry: EXModuleRegistry) {
+    lock.lock()
+    registries.add(registry)
+    lock.unlock()
   }
 
   fileprivate static func recordCreate(_ id: String) {

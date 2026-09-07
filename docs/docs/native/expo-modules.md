@@ -198,6 +198,31 @@ The factory and provider are required for initial installation and for reloads.
 Regenerate the provider whenever module dependencies or their
 `expo-module.config.json` files change.
 
+## Legacy services available to native modules
+
+The watch build includes these upstream services alongside the modern Module DSL:
+
+| Service | Watch behavior |
+| --- | --- |
+| `Promise.legacyResolver` / `legacyRejecter` | Adapt Objective-C promise callbacks to the owning Hermes runtime. |
+| `AppContext.legacyModule(implementing:)` | Resolve explicitly registered `EXInternalModule` services through a per-host `EXModuleRegistry`, with Expo's normal modern-module fallback. |
+| `AppContext.fileSystem` / `FileSystemUtilities` | Sandbox directory creation, generated file paths, and file-access helpers. The same file-system instance is registered under its legacy interfaces. |
+| `AppContext.permissions` / `EXPermissionsMethodsDelegate` | Register, query, and invoke permission requesters implemented by watch-capable modules. No iOS requester or system permission is enabled automatically. |
+| `PersistentFileLog` / `createPersistentFileLogHandler` | Write, reopen, filter, and clear real log files in Application Support. |
+
+The host creates a separate legacy registry for each runtime and retains it until
+teardown. A native module can explicitly register its service with
+`appContext.legacyModuleRegistry?.register(service)` and call `initialize()` after
+registration to inject the registry into `EXModuleRegistryConsumer` services.
+Register permission requesters with `appContext.permissions?.register(requesters)`.
+Perform service registration during module creation, before concurrent work uses
+those services; Expo's legacy registry is not a concurrent registration API.
+
+This does not enable global `EX_REGISTER_MODULE` discovery or the old exported
+JavaScript module proxy. Native modules still use the modern Module DSL and the
+watch provider described above. Constants tied to an iOS app, view lookup,
+app-delegate hooks, and React UI services remain excluded.
+
 ## Development and validation
 
 Maintainers generate the native artifacts before prebuild:
@@ -217,9 +242,10 @@ The supported non-UI surface includes module lookup through
 `import { requireNativeModule } from 'expo-modules-core'`, synchronous and
 asynchronous functions, events, records, enums, and shared objects. The native
 smoke fixture covers those paths, including runtime cleanup and simultaneous
-direct Expo JSI module isolation. The release gate runs 63 JavaScript assertions
+direct Expo JSI module isolation. The release gate runs 94 JavaScript assertions
 on the watch simulator, checks all four module instances are destroyed exactly
-once, and compiles unsigned builds for both watch device architectures.
+once, verifies legacy registries are released, and compiles unsigned builds for
+both watch device architectures.
 Physical-device runtime behavior has not yet been validated.
 
 The non-UI build excludes native views, UIKit/AppKit integration, Fabric, the React
