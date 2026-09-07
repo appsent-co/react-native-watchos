@@ -15,11 +15,11 @@ const {
 const { withWatchosMetro } = require('../plugin/src/withWatchosMetro');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const EXAMPLE_PROJECT = path.join(
+const FIXTURE_PROJECT = path.join(
   REPO_ROOT,
-  'example',
-  'ios',
-  'watchosexample.xcodeproj',
+  'tests',
+  'fixtures',
+  'watch-project.xcodeproj',
   'project.pbxproj'
 );
 
@@ -50,7 +50,7 @@ function projectFixture() {
   const projectDir = path.join(platformRoot, 'watchosexample.xcodeproj');
   fs.mkdirSync(projectDir, { recursive: true });
   const projectFile = path.join(projectDir, 'project.pbxproj');
-  fs.copyFileSync(EXAMPLE_PROJECT, projectFile);
+  fs.copyFileSync(FIXTURE_PROJECT, projectFile);
   return { root, platformRoot, projectFile };
 }
 

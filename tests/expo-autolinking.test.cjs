@@ -333,13 +333,7 @@ test('generic Ruby autolinking recognizes Expo package metadata', () => {
         path.join(REPO_ROOT, 'cocoapods', 'autolink.rb'),
         root,
       ],
-      {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          PATH: '/Users/maxencehenneron/.rbenv/shims:' + process.env.PATH,
-        },
-      }
+      { encoding: 'utf8' }
     );
     assert.equal(command.status, 0, command.stderr);
     assert.equal(command.stdout.trim(), 'true');
