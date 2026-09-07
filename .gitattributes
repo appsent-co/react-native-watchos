@@ -1,3 +1,6 @@
 *.pbxproj -text
 # specific for windows script files
 *.bat text eol=crlf
+
+# Unified patches require a space prefix on empty context lines.
+expo-modules/patches/*.patch -whitespace

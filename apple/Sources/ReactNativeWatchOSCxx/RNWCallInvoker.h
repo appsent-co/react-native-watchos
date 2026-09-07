@@ -6,20 +6,19 @@
 #include <atomic>
 #include <cstdio>
 #include <dispatch/dispatch.h>
+#import "RNWJSThread.h"
 #include <memory>
 
 namespace facebook::react {
 
-// Scheduler around the serial GCD queue that owns Hermes. Two flavors:
+// Scheduler around the dedicated thread that owns Hermes. Two flavors:
 //   * `runAsync` / `runSync` — raw transport, no microtask drain.
 //   * `runOnJS*` / `invokeOnJS` — call into the runtime AND drain the Hermes
 //     microtask queue after the block returns. Use this anywhere a callback
 //     talks to the runtime. Hermes runs with `withMicrotaskQueue(true)`, so
 //     Promise/await/queueMicrotask continuations sit forever without a drain.
 //
-// The queue is tagged with `dispatch_queue_set_specific(queue, key, …)` so
-// `dispatch_get_specific(key)` answers "am I on the JS queue?" — the sync
-// variants use this to avoid self-deadlock when called re-entrantly.
+// Sync calls already on this thread run inline to avoid self-deadlock.
 //
 // Lifetime: this struct is copied by value into every host that calls back
 // into JS, and those hosts outlive the runtime on a Fast Refresh full reload.
@@ -28,8 +27,7 @@ namespace facebook::react {
 // on the JS queue ahead of destroying the runtime, so a block queued behind
 // the teardown no-ops instead of touching freed memory.
 struct RNWJSQueue {
-  dispatch_queue_t queue;
-  const void* key;
+  RNWJSThread *thread;
   // Settable post-construction: the runtime is built ON the queue, after
   // this struct exists. Null before installation (and again after
   // `invalidate()`) → all `*OnJS` helpers no-op.
@@ -42,11 +40,11 @@ struct RNWJSQueue {
   jsi::Runtime* runtime() const noexcept { return runtimeCell->load(); }
 
   bool isCurrent() const noexcept {
-    return dispatch_get_specific(key) != nullptr;
+    return [thread isCurrent];
   }
 
   void runAsync(dispatch_block_t block) const noexcept {
-    dispatch_async(queue, block);
+    [thread enqueue:block];
   }
 
   // Re-entrant safe.
@@ -54,14 +52,14 @@ struct RNWJSQueue {
     if (isCurrent()) {
       block();
     } else {
-      dispatch_sync(queue, block);
+      [thread runSync:block];
     }
   }
 
   void runOnJS(void (^block)(jsi::Runtime& rt)) const noexcept {
     if (block == nil || runtime() == nullptr) return;
     auto cell = runtimeCell;
-    dispatch_async(queue, ^{
+    runAsync(^{
       jsi::Runtime* rt = cell->load();
       if (rt == nullptr) return;
       block(*rt);
@@ -73,16 +71,11 @@ struct RNWJSQueue {
   void runOnJSAfter(int64_t delayNs,
                     void (^block)(jsi::Runtime& rt)) const noexcept {
     if (block == nil || runtime() == nullptr) return;
-    auto cell = runtimeCell;
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, delayNs),
-        queue,
-        ^{
-          jsi::Runtime* rt = cell->load();
-          if (rt == nullptr) return;
-          block(*rt);
-          rt->drainMicrotasks();
-        });
+    auto target = *this;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayNs),
+                   dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+      target.runOnJS(block);
+    });
   }
 
   // Re-entrant from the JS queue runs inline.
@@ -92,7 +85,7 @@ struct RNWJSQueue {
       invokeOnJS(block);
     } else {
       auto cell = runtimeCell;
-      dispatch_sync(queue, ^{
+      runSync(^{
         jsi::Runtime* rt = cell->load();
         if (rt == nullptr) return;
         block(*rt);
@@ -101,8 +94,7 @@ struct RNWJSQueue {
     }
   }
 
-  // Caller is already on the JS queue (e.g. a GCD dispatch source firing on
-  // this queue) — invoke inline and drain, no re-dispatch.
+  // Caller is already on the JS thread — invoke inline and drain, no re-dispatch.
   void invokeOnJS(void (^block)(jsi::Runtime& rt)) const noexcept {
     jsi::Runtime* rt = runtime();
     if (block == nil || rt == nullptr) return;
@@ -120,7 +112,7 @@ struct RNWJSQueue {
     if (!owner) return;
     auto cell = runtimeCell;
     auto* box = new std::shared_ptr<void>(std::move(owner));
-    dispatch_async(queue, ^{
+    runAsync(^{
       if (cell->load() != nullptr) {
         delete box;
       }

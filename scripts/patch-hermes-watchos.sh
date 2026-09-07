@@ -38,14 +38,24 @@ fi
 # `hermes`. With the framework named `hermesvm`, those internal includes
 # fail to resolve. Force OUTPUT_NAME=hermes so the produced framework is
 # named `hermes.framework` regardless of the CMake target name.
-API_HERMES_CMAKE="$HERMES_SOURCE_DIR/API/hermes/CMakeLists.txt"
-if [ -f "$API_HERMES_CMAKE" ] && ! grep -q "OUTPUT_NAME hermes" "$API_HERMES_CMAKE"; then
+# Hermes V1 moved the shared-library target from API/hermes to lib.
+API_HERMES_CMAKE=""
+for candidate in "$HERMES_SOURCE_DIR/API/hermes/CMakeLists.txt" "$HERMES_SOURCE_DIR/lib/CMakeLists.txt"; do
+  if [ -f "$candidate" ] && grep -q '^add_library(hermesvm ' "$candidate"; then
+    API_HERMES_CMAKE="$candidate"
+    break
+  fi
+done
+if [ -z "$API_HERMES_CMAKE" ]; then
+  echo "Error: cannot locate the Hermes shared-library target for watchOS patching." >&2
+  exit 1
+fi
+if ! grep -q 'OUTPUT_NAME hermes' "$API_HERMES_CMAKE"; then
   echo "Patching $API_HERMES_CMAKE..."
   sed -i.bak '/^add_library(hermesvm /a\
 set_target_properties(hermesvm PROPERTIES OUTPUT_NAME hermes)
 ' "$API_HERMES_CMAKE"
-  echo "  ✓ Set OUTPUT_NAME=hermes (produces hermes.framework, matches"
-  echo "    Hermes's internal #include <hermes/...> framework references)"
+  echo "  ✓ Set OUTPUT_NAME=hermes (produces hermes.framework)"
 fi
 
 echo "Hermes patched successfully for watchOS!"

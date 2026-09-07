@@ -28,6 +28,7 @@ const MARKER =
  * @typedef {object} Opts
  * @property {string} targetName - Watch target name; matches the
  *   `targets/<targetName>/` directory.
+ * @property {boolean} [expoModules] - Include the Expo modules runtime.
  * @property {string} [watchosDeploymentTarget] - Minimum watchOS version.
  *   Defaults to `"9.0"`, matching `WATCHOS_DEPLOYMENT_TARGET` in
  *   `scripts/build-xcframework.sh`.
@@ -37,7 +38,7 @@ const MARKER =
  */
 const withWatchAutolinking = (
   config,
-  { targetName, watchosDeploymentTarget }
+  { targetName, watchosDeploymentTarget, expoModules }
 ) => {
   return withDangerousMod(config, [
     'ios',
@@ -85,7 +86,7 @@ const withWatchAutolinking = (
         "  config_command = ['node', '--no-warnings', '--eval', \"require('expo/bin/autolinking')\", 'expo-modules-autolinking', 'react-native-config', '--json', '--platform', 'ios']",
         'end',
         '',
-        'use_watchos_modules!(:config_command => config_command)',
+        `use_watchos_modules!(:config_command => config_command, :expo_modules => ${expoModules ? 'true' : 'false'}, :project_root => File.expand_path('../..', __dir__), :expo_provider => File.expand_path('../../ios/build/generated/rnw-expo/${targetName}/RNWExpoModulesProvider.swift', __dir__))`,
         '',
       ].join('\n');
 
@@ -93,7 +94,10 @@ const withWatchAutolinking = (
       if (fs.existsSync(podsRbPath)) {
         const existing = fs.readFileSync(podsRbPath, 'utf8');
         if (!existing.startsWith(MARKER)) {
-          // User has a hand-managed pods.rb; leave it alone.
+          if (expoModules)
+            throw new Error(
+              `[RNW Expo modules] ${podsRbPath} is hand-managed. Automatic Expo modules integration requires a generated pods.rb. Set expoModules: false and use the documented manual integration for hand-managed Podfiles, or restore the RNW-AUTOLINK marker to let prebuild manage this file.`
+            );
           return cfg;
         }
       }

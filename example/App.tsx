@@ -14,7 +14,7 @@ import { DemoGalleryScreen } from './src/demos/DemoGalleryScreen';
 /// demo we ship (Group, Label, Shapes, Picker, TextField/SecureField,
 /// Form, AsyncImage, DatePicker, Stepper, Gauge).
 export default function App() {
-  const [tab, setTab] = useState('pokedex');
+  const [tab, setTab] = useState('demos');
 
   return (
     <TabView selection={tab} onSelectionChange={setTab} style="page">

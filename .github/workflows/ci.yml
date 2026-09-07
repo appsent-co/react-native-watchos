@@ -20,4 +20,6 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: sudo apt-get update && sudo apt-get install -y libicu-dev
+      - name: Install CocoaPods test dependency
+        run: gem install --user-install cocoapods-core --version 1.16.2 --no-document
       - run: pnpm test

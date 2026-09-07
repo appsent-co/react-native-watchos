@@ -269,7 +269,8 @@
     }
   );
 
-  for (const type of ['open', 'message', 'error', 'close']) {
+  // Embedded scripts run without Babel; Hermes disables block scoping by default.
+  ['open', 'message', 'error', 'close'].forEach(function (type) {
     accessor(
       'on' + type,
       function () {
@@ -294,7 +295,7 @@
         }
       }
     );
-  }
+  });
 
   proto.addEventListener = function (type, listener, options) {
     if (listener === null || listener === undefined) return;

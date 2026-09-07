@@ -1,0 +1,490 @@
+--- a/ios/Core/AppContext.swift
++++ b/ios/Core/AppContext.swift
+@@ -1,4 +1,7 @@
++import Foundation
++#if !EXPO_MODULES_CORE_HEADLESS
+ @preconcurrency internal import React
++#endif
+ import ExpoModulesJSI
+ 
+ /**
+@@ -46,6 +49,7 @@
+   @objc
+   public weak var legacyModuleRegistry: EXModuleRegistry?
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    React bridge of the context's app. Can be `nil` when the bridge
+    hasn't been propagated to the bridge modules yet,
+@@ -59,6 +63,7 @@
+    */
+   private var hostWrapper: ExpoHostWrapper?
+ 
++#endif
+   /**
+    Underlying JSI runtime of the running app.
+    */
+@@ -89,6 +94,7 @@
+     }
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   public typealias UIRuntimeFactory = (
+     _ appContext: AppContext,
+     _ pointerValue: JavaScriptValue,
+@@ -120,6 +126,7 @@
+     }
+   }
+ 
++#endif
+   /**
+    The application identifier that is used to distinguish between different `RCTHost`.
+    It might be equal to `nil`, meaning we couldn't obtain the Id for the current app.
+@@ -127,10 +134,14 @@
+    */
+   @objc
+   public var appIdentifier: String? {
++#if EXPO_MODULES_CORE_HEADLESS
++    return nil
++#else
+     guard let moduleRegistry = reactBridge?.moduleRegistry else {
+       return nil
+     }
+     return "\(abs(ObjectIdentifier(moduleRegistry).hashValue))"
++#endif
+   }
+ 
+   /**
+@@ -164,7 +175,9 @@
+     super.init()
+ 
+     self.moduleRegistry.register(module: JSLoggerModule(appContext: self), name: nil)
++#if !EXPO_MODULES_CORE_HEADLESS
+     listenToClientAppNotifications()
++#endif
+   }
+ 
+   public convenience init(legacyModuleRegistry: Any, config: AppContextConfig? = nil) {
+@@ -189,6 +202,7 @@
+     return self
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   // MARK: - UI
+ 
+   /**
+@@ -201,6 +215,7 @@
+     }
+   }
+ 
++#endif
+   // MARK: - Running on specific queues
+ 
+   /**
+@@ -246,11 +261,13 @@
+     return legacyModuleRegistry?.getModuleImplementingProtocol(moduleProtocol) as? ModuleProtocol ?? moduleRegistry.getModule(implementing: ModuleProtocol.self)
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Provides access to app's constants.
+    */
+   public lazy var constants: EXConstantsInterface? = ConstantsProvider.shared
+ 
++#endif
+   /**
+    Provides access to the file system utilities. Can be overridden if the app should use different different directories or file permissions.
+    For instance, Expo Go uses sandboxed environment per project where the cache and document directories must be scoped.
+@@ -263,6 +280,7 @@
+    */
+   public lazy var permissions: EXPermissionsService? = EXPermissionsService()
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Provides access to the image loader from legacy module registry.
+    */
+@@ -299,6 +317,7 @@
+    */
+   public var utilities: Utilities? = Utilities()
+ 
++#endif
+   /**
+    Provides an event emitter that is compatible with the legacy interface.
+    - Deprecated as of Expo SDK 55. May be removed in the future releases.
+@@ -308,6 +327,7 @@
+     return LegacyEventEmitterCompat(appContext: self)
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Starts listening to `UIApplication` notifications.
+    */
+@@ -357,6 +377,7 @@
+     }
+   }
+ 
++#endif
+   /**
+    Returns a bool whether the module with given name is registered in this context.
+    */
+@@ -399,6 +420,7 @@
+   public func registerNativeModules(provider: ModulesProvider) {
+     useModulesProvider(provider)
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+     // TODO: Make `registerNativeViews` thread-safe
+     if Thread.isMainThread {
+       MainActor.assumeIsolated {
+@@ -409,8 +431,10 @@
+         self?.registerNativeViews()
+       }
+     }
+-  }
+-
++#endif
++  }
++
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Registers native views defined by registered native modules.
+    - Note: It should stay private as `registerNativeModules` should be the only call site.
+@@ -426,6 +450,7 @@
+     }
+   }
+ 
++#endif
+   // MARK: - Runtime
+ 
+   /**
+@@ -499,6 +524,7 @@
+     try installer.installExpoModulesHostObject()
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   @MainActor
+   internal func prepareUIRuntime() throws {
+     // This function is @MainActor, but the installer APIs require @JavaScriptActor.
+@@ -603,6 +629,7 @@
+     return nil
+   }
+ 
++#endif
+   /**
+    Unsets runtime objects that we hold for each module.
+    */
+@@ -711,11 +738,13 @@
+     }
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   @objc
+   public func setHostWrapper(_ wrapper: ExpoHostWrapper) {
+     self.hostWrapper = wrapper
+   }
+ 
++#endif
+   // MARK: - Statics
+ 
+   /**
+@@ -788,6 +817,7 @@
+     return String(characters)
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   public func reloadAppAsync(_ reason: String = "Reload from appContext") {
+     if moduleRegistry.has(moduleWithName: "ExpoGo") {
+       NotificationCenter.default.post(name: NSNotification.Name(rawValue: "EXReloadActiveAppRequest"), object: nil)
+@@ -802,8 +832,10 @@
+       }
+     }
+   }
++#endif
+ }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+ /**
+  Reference-type store for cached worklet prototypes. Needed because JavaScriptObject
+  is ~Copyable and cannot be stored in a Dictionary; we cache via JavaScriptValue
+@@ -814,6 +846,7 @@
+   var store: [ObjectIdentifier: JavaScriptValue] = [:]
+ }
+ 
++#endif
+ // MARK: - Public exceptions
+ 
+ public class JavaScriptClassNotFoundException: Exception, @unchecked Sendable {
+--- a/ios/Core/Modules/ModuleDefinition.swift
++++ b/ios/Core/Modules/ModuleDefinition.swift
+@@ -20,7 +20,9 @@
+ 
+   let eventListeners: [EventListener]
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   let views: [String: AnyViewDefinition]
++#endif
+ 
+   /**
+    Names of the events that the module can send to JavaScript.
+@@ -47,11 +49,13 @@
+ 
+     self.eventListeners = definitions.compactMap { $0 as? EventListener }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+     let viewDefinitions: [AnyViewDefinition] = definitions
+       .compactMap { $0 as? AnyViewDefinition }
+     var viewsDict = Dictionary(uniqueKeysWithValues: viewDefinitions.map { ($0.name, $0) })
+     viewsDict[DEFAULT_MODULE_VIEW] = viewDefinitions.first
+     self.views = viewsDict
++#endif
+     self.eventNames = Array(
+       definitions
+         .compactMap { ($0 as? EventsDefinition)?.names }
+@@ -87,11 +91,13 @@
+ 
+     let viewPrototypesObject = try appContext.runtime.createObject()
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+     try views.forEach { key, view in
+       let reactComponentPrototype = try view.createReactComponentPrototype(appContext: appContext)
+       viewPrototypesObject.setProperty(key == DEFAULT_MODULE_VIEW ? name : "\(name)_\(view.name)", value: reactComponentPrototype)
+     }
+ 
++#endif
+     if !eventObservers.isEmpty {
+       try EventObservingDecorator(definitions: eventObservers)
+         .decorate(object: object, appContext: appContext)
+--- a/ios/Core/Modules/CoreModule.swift
++++ b/ios/Core/Modules/CoreModule.swift
+@@ -1,6 +1,8 @@
+ // Copyright 2015-present 650 Industries. All rights reserved.
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+ internal import React
++#endif
+ import Foundation
+ import ExpoModulesJSI
+ 
+@@ -27,6 +29,7 @@
+       FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
+     }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+     Function("installOnUIRuntime") { (uiRuntimeHolder: JavaScriptValue) in
+       guard let appContext else {
+         throw Exceptions.AppContextLost()
+@@ -74,6 +77,7 @@
+       }
+     }
+ 
++#endif
+     // Expose some common classes and maybe even the `modules` host object in the future.
+     Function("uuidv4") { () -> String in
+       return UUID().uuidString.lowercased()
+@@ -87,6 +91,7 @@
+       return uuidv5(name: name, namespace: namespaceUuid).uuidString.lowercased()
+     }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+     // swiftlint:disable:next unused_closure_parameter
+     Function("getViewConfig") { (moduleName: String, viewName: String?) -> [String: Any]? in
+       var validAttributes: [String: Any] = [:]
+@@ -117,8 +122,10 @@
+     AsyncFunction("reloadAppAsync") { (reason: String) in
+       appContext?.reloadAppAsync(reason)
+     }
++#endif
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   private func getHolderName(_ viewName: String) -> String {
+     if let appIdentifier = appContext?.appIdentifier, viewName.hasSuffix("_\(appIdentifier)") {
+       return String(viewName.dropLast("_\(appIdentifier)".count))
+@@ -126,6 +133,7 @@
+ 
+     return viewName
+   }
++#endif
+ }
+ 
+ internal final class WorkletUIRuntimeException: Exception, @unchecked Sendable {
+--- a/ios/Core/ModulesProvider.swift
++++ b/ios/Core/ModulesProvider.swift
+@@ -8,6 +8,7 @@
+ 
+   func getModuleClasses() -> [ExpoModuleTupleType]
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    Returns an array of classes that hooks into `ExpoAppDelegate` to receive app delegate events.
+    */
+@@ -19,6 +20,7 @@
+    */
+   func getReactDelegateHandlers() -> [ExpoReactDelegateHandlerTupleType]
+ 
++#endif
+   func getAppCodeSignEntitlements() -> AppCodeSignEntitlements
+ }
+ 
+@@ -34,6 +36,7 @@
+     return []
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   open func getAppDelegateSubscribers() -> [ExpoAppDelegateSubscriber.Type] {
+     return []
+   }
+@@ -42,6 +45,7 @@
+     return []
+   }
+ 
++#endif
+   open func getAppCodeSignEntitlements() -> AppCodeSignEntitlements {
+     return AppCodeSignEntitlements()
+   }
+--- a/ios/Core/Functions/AsyncFunctionDefinition.swift
++++ b/ios/Core/Functions/AsyncFunctionDefinition.swift
+@@ -159,6 +159,7 @@
+     let maxRetryCount = 3
+ 
+     queue.async {
++#if !EXPO_MODULES_CORE_HEADLESS
+       // Checks if this is a view function unregistered in the view registry. The check can be performed from the main thread only.
+       if retryCount < maxRetryCount,
+         let viewTag = arguments.first as? Int,
+@@ -170,6 +171,7 @@
+         self.dispatchOnQueueUntilViewRegisters(appContext: appContext, arguments: arguments, queue: queue, retryCount: retryCount + 1, block)
+         return
+       }
++#endif
+       // Schedule the block as normal.
+       block()
+     }
+--- a/ios/Core/Exceptions/CommonExceptions.swift
++++ b/ios/Core/Exceptions/CommonExceptions.swift
+@@ -49,6 +49,7 @@
+     }
+   }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+   /**
+    An exception to throw when the view with the given tag and class cannot be found.
+    */
+@@ -63,6 +64,7 @@
+     }
+   }
+ 
++#endif
+   /**
+    An exception to throw when a JavaScript caller passes a number of arguments outside the range the
+    native function accepts. The accepted range spans the required count (total minus the trailing run
+--- a/ios/Api/Factories/AsyncFunctionFactories.swift
++++ b/ios/Api/Factories/AsyncFunctionFactories.swift
+@@ -1,3 +1,4 @@
++#if !EXPO_MODULES_CORE_HEADLESS
+ /**
+  Asynchronous function from an optimized function descriptor.
+  The descriptor is produced by `@OptimizedFunction` macro-generated peer functions.
+@@ -13,6 +14,8 @@
+     block: descriptor.block
+   )
+ }
++
++#endif
+ 
+ /**
+  Asynchronous function without arguments.
+--- a/ios/Api/Factories/SyncFunctionFactories.swift
++++ b/ios/Api/Factories/SyncFunctionFactories.swift
+@@ -1,3 +1,4 @@
++#if !EXPO_MODULES_CORE_HEADLESS
+ /**
+  Synchronous function from an optimized function descriptor.
+  The descriptor is produced by `@OptimizedFunction` macro-generated peer functions.
+@@ -13,6 +14,8 @@
+     block: descriptor.block
+   )
+ }
++
++#endif
+ 
+ /**
+  Synchronous function without arguments.
+--- a/ios/JS/EXJSIInstaller.h
++++ b/ios/JS/EXJSIInstaller.h
+@@ -1,3 +1,6 @@
++#import <Foundation/Foundation.h>
++
++#if !EXPO_MODULES_CORE_HEADLESS && !TARGET_OS_WATCH
+ // Copyright 2018-present 650 Industries. All rights reserved.
+ 
+ #if !__building_module(ExpoModulesCore)
+@@ -15,6 +18,8 @@
+ #if __has_include(<ReactCommon/RCTRuntimeExecutor.h>)
+ @class RCTRuntimeExecutor;
+ #endif // React Native >=0.74
++
++#endif
+ 
+ @interface EXJavaScriptRuntimeManager : NSObject
+ 
+--- a/ios/JS/EXJSIInstaller.mm
++++ b/ios/JS/EXJSIInstaller.mm
+@@ -1,6 +1,5 @@
+ // Copyright 2018-present 650 Industries. All rights reserved.
+ 
+-#import <ExpoModulesCore/BridgelessJSCallInvoker.h>
+ #import <ExpoModulesCore/EXAppContextProtocol.h>
+ #import <ExpoModulesCore/EXJSIInstaller.h>
+ #import <ExpoModulesCore/SharedObject.h>
+@@ -8,8 +7,6 @@
+ #import <ExpoModulesCore/EventEmitter.h>
+ #import <ExpoModulesCore/NativeModule.h>
+ 
+-#import <react/renderer/runtimescheduler/RuntimeScheduler.h>
+-#import <react/renderer/runtimescheduler/RuntimeSchedulerBinding.h>
+ 
+ namespace jsi = facebook::jsi;
+ 
+--- a/ios/Utilities/Utilities.swift
++++ b/ios/Utilities/Utilities.swift
+@@ -127,6 +127,7 @@
+   return try DispatchQueue.main.sync(execute: closure)
+ }
+ 
++#if !EXPO_MODULES_CORE_HEADLESS
+ /**
+  A collection of utility functions for various Expo Modules common tasks.
+  */
+@@ -154,3 +155,5 @@
+     }
+   }
+ }
++
++#endif
+--- a/ios/Core/Logging/PersistentFileLog.swift
++++ b/ios/Core/Logging/PersistentFileLog.swift
+@@ -120,11 +120,9 @@
+   private func appendTextToFile(text: String) throws {
+     if let data = text.data(using: .utf8) {
+       if let fileHandle = FileHandle(forWritingAtPath: filePath) {
+-        try EXUtilities.catchException {
+-          fileHandle.seekToEndOfFile()
+-          fileHandle.write(data)
+-          fileHandle.closeFile()
+-        }
++        defer { try? fileHandle.close() }
++        try fileHandle.seekToEnd()
++        try fileHandle.write(contentsOf: data)
+       }
+     }
+   }
+--- a/ios/Legacy/Services/Permissions/EXPermissionsService.m
++++ b/ios/Legacy/Services/Permissions/EXPermissionsService.m
+@@ -1,7 +1,5 @@
+ // Copyright 2016-present 650 Industries. All rights reserved.
+ 
+-#import <ExpoModulesCore/EXUtilitiesInterface.h>
+-#import <ExpoModulesCore/EXUtilities.h>
+ #import <ExpoModulesCore/EXPermissionsService.h>
+ #import <React/RCTLog.h>
+ 

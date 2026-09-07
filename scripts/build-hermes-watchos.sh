@@ -57,30 +57,42 @@ fi
 # (Hermes 0.16 renamed the variable from `IMPORT_HERMESC` to
 # `IMPORT_HOST_COMPILERS`, and the imported target from `hermesc` to
 # `native-hermesc`.)
-HERMESC_BUILD_DIR="$BUILD_DIR/host_hermesc"
+# Both watch slices share one host compiler. Key it by the exact source and
+# toolchain, so an RN/Hermes upgrade cannot reuse incompatible bytecode tools.
+HERMESC_BUILD_DIR="$BUILD_DIR/../host_hermesc"
 HERMESC_IMPORT_FILE="$HERMESC_BUILD_DIR/ImportHostCompilers.cmake"
-if [ ! -f "$HERMESC_IMPORT_FILE" ]; then
-  echo "Building hermesc for host..."
-  mkdir -p "$HERMESC_BUILD_DIR"
-
-  "$CMAKE_BINARY" \
-    -S "$HERMES_SOURCE_DIR" \
-    -B "$HERMESC_BUILD_DIR" \
-    -DHERMES_ENABLE_LIBFUZZER=OFF \
-    -DHERMES_ENABLE_FUZZILLI=OFF \
-    -DHERMES_ENABLE_TEST_SUITE=OFF \
-    -DCMAKE_BUILD_TYPE=Release
-
-  "$CMAKE_BINARY" \
-    --build "$HERMESC_BUILD_DIR" \
-    --target hermesc \
-    -j "$(sysctl -n hw.ncpu)"
-
-  echo "Hermesc built successfully at $HERMESC_BUILD_DIR/bin/hermesc"
+HERMESC_KEY=$({
+  printf '%s\n' "$HERMES_SOURCE_DIR"
+  git -C "$HERMES_SOURCE_DIR" rev-parse HEAD
+  git -C "$HERMES_SOURCE_DIR" diff HEAD --binary | shasum -a 256
+  "$CMAKE_BINARY" --version
+  xcodebuild -version
+} | shasum -a 256 | cut -d ' ' -f 1)
+if [ "$(cat "$HERMESC_BUILD_DIR/.rnw-build-key" 2>/dev/null || true)" != "$HERMESC_KEY" ]; then
+  rm -rf "$HERMESC_BUILD_DIR"
 fi
+
+echo "Building hermesc for host..."
+"$CMAKE_BINARY" \
+  -S "$HERMES_SOURCE_DIR" \
+  -B "$HERMESC_BUILD_DIR" \
+  -DHERMES_ENABLE_LIBFUZZER=OFF \
+  -DHERMES_ENABLE_FUZZILLI=OFF \
+  -DHERMES_ENABLE_TEST_SUITE=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+
+"$CMAKE_BINARY" \
+  --build "$HERMESC_BUILD_DIR" \
+  --target hermesc \
+  -j "$(sysctl -n hw.ncpu)"
+printf '%s\n' "$HERMESC_KEY" > "$HERMESC_BUILD_DIR/.rnw-build-key"
 
 # Configure Hermes for watchOS
 echo "Configuring Hermes for $PLATFORM_NAME..."
+TARGET_KEY="$HERMESC_KEY:$ARCHS:$DEPLOYMENT_TARGET"
+if [ "$(cat "$BUILD_DIR/$PLATFORM_NAME/.rnw-build-key" 2>/dev/null || true)" != "$TARGET_KEY" ]; then
+  rm -rf "$BUILD_DIR/$PLATFORM_NAME"
+fi
 
 "$CMAKE_BINARY" \
   -S "$HERMES_SOURCE_DIR" \
@@ -110,6 +122,7 @@ echo "Building Hermes framework..."
   --build "$BUILD_DIR/$PLATFORM_NAME" \
   --target hermesvm \
   -j "$(sysctl -n hw.ncpu)"
+printf '%s\n' "$TARGET_KEY" > "$BUILD_DIR/$PLATFORM_NAME/.rnw-build-key"
 
 # Copy framework to output directory. Resolve the actual location via `find`
 # because cmake places framework bundles in different paths depending on
@@ -120,6 +133,7 @@ if [ -z "$HERMES_FRAMEWORK_PATH" ]; then
   echo "Error: hermes.framework not found in $BUILD_DIR/$PLATFORM_NAME"
   exit 1
 fi
+rm -rf "$OUTPUT_DIR/hermes.framework"
 cp -pR "$HERMES_FRAMEWORK_PATH" "$OUTPUT_DIR/"
 
 # Hermes's own CMakeLists doesn't add the public API headers as PUBLIC_HEADER

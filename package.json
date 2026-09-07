@@ -39,17 +39,30 @@
     "apple",
     "cocoapods",
     "build/xcframework",
-    "!**/.*"
+    "!**/.*",
+    "ReactNativeWatchOSExpo.podspec",
+    "expo-modules",
+    "cmake",
+    "scripts/build-xcframework.sh",
+    "scripts/build-hermes-watchos.sh",
+    "scripts/patch-hermes-watchos.sh",
+    "scripts/build-expo-modules.sh",
+    "scripts/verify-package.cjs",
+    "expo-modules/jsi/build",
+    "expo-modules/core/build"
   ],
   "scripts": {
     "build:xcframework": "./scripts/build-xcframework.sh",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "clean": "del-cli build/xcframework example/ios",
     "docs": "pnpm --filter react-native-watchos-docs start",
     "docs:build": "pnpm --filter react-native-watchos-docs build",
     "release": "release-it --only-version",
-    "prepublishOnly": "pnpm build:xcframework"
+    "prepublishOnly": "pnpm build:xcframework && pnpm build:expo-modules",
+    "build:expo-modules": "./scripts/build-expo-modules.sh",
+    "verify:package": "node ./scripts/verify-package.cjs",
+    "prepack": "node ./scripts/verify-package.cjs"
   },
   "keywords": [
     "react-native",
@@ -78,8 +91,8 @@
     "@eslint/js": "^9.35.0",
     "@evilmartians/lefthook": "^1.12.3",
     "@release-it/conventional-changelog": "^10.0.1",
-    "@types/react": "^19.1.0",
-    "@types/react-reconciler": "^0.28.9",
+    "@types/react": "^19.2.0",
+    "@types/react-reconciler": "^0.33.0",
     "commitlint": "^19.8.1",
     "del-cli": "^6.0.0",
     "eslint": "^9.35.0",
@@ -87,15 +100,20 @@
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^15.14.0",
     "prettier": "^3.6.2",
-    "react": "19.1.0",
+    "react": "19.2.3",
     "release-it": "^19.0.4",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "@babel/runtime": "^7.29.2"
   },
   "dependencies": {
-    "@expo/config-plugins": "^54.0.0",
+    "@expo/config-plugins": "~57.0.9",
     "@expo/plist": "^0.4.8",
-    "react-reconciler": "0.32.0",
-    "whatwg-fetch": "^3.6.20"
+    "react-reconciler": "0.33.0",
+    "whatwg-fetch": "^3.6.20",
+    "xcode": "^3.0.1",
+    "expo-modules-core": "57.0.16",
+    "expo-modules-autolinking": "57.0.12",
+    "semver": "^7.7.3"
   },
   "sideEffects": [
     "src/polyfills.ts",
@@ -106,9 +124,9 @@
   ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",
-    "expo": ">=54.0.0",
-    "react": "*",
-    "react-native": "*"
+    "expo": ">=57.0.19 <=57.0.20",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
   },
   "packageManager": "pnpm@10.10.0",
   "commitlint": {

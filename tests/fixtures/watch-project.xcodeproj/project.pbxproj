@@ -1,0 +1,105 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* App.swift */; };
+		A00000000000000000000002 /* Watch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* Watch.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000003 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000004 /* Watch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Watch.swift; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000005 /* watchosexample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = watchosexample.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000006 /* watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000007 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000003 /* App.swift */,
+				A00000000000000000000004 /* Watch.swift */,
+				A00000000000000000000008 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000008 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000005 /* watchosexample.app */,
+				A00000000000000000000006 /* watch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000009 /* watchosexample */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000014 /* Build configuration list for PBXNativeTarget "watchosexample" */;
+			buildPhases = (A0000000000000000000000B /* Sources */,);
+			buildRules = ();
+			dependencies = ();
+			name = watchosexample;
+			productName = watchosexample;
+			productReference = A00000000000000000000005 /* watchosexample.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A0000000000000000000000A /* watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000015 /* Build configuration list for PBXNativeTarget "watch" */;
+			buildPhases = (A0000000000000000000000C /* Sources */,);
+			buildRules = ();
+			dependencies = ();
+			name = watch;
+			productName = watch;
+			productReference = A00000000000000000000006 /* watch.app */;
+			productType = "com.apple.product-type.application.watchapp2";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A0000000000000000000000D /* Project object */ = {
+			isa = PBXProject;
+			buildConfigurationList = A00000000000000000000016 /* Build configuration list for PBXProject "watchosexample" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			knownRegions = (en, Base,);
+			mainGroup = A00000000000000000000007;
+			productRefGroup = A00000000000000000000008 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000009 /* watchosexample */,
+				A0000000000000000000000A /* watch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A0000000000000000000000B /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001 /* App.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A0000000000000000000000C /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000002 /* Watch.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 16.4; SDKROOT = iphoneos; }; name = Debug; };
+		A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 16.4; SDKROOT = iphoneos; }; name = Release; };
+		A00000000000000000000010 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {WATCHOS_DEPLOYMENT_TARGET = 9.0; SDKROOT = watchos; }; name = Debug; };
+		A00000000000000000000011 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {WATCHOS_DEPLOYMENT_TARGET = 9.0; SDKROOT = watchos; }; name = Release; };
+		A00000000000000000000012 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Debug; };
+		A00000000000000000000013 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000014 /* Build configuration list for PBXNativeTarget "watchosexample" */ = {isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000E /* Debug */, A0000000000000000000000F /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A00000000000000000000015 /* Build configuration list for PBXNativeTarget "watch" */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000010 /* Debug */, A00000000000000000000011 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A00000000000000000000016 /* Build configuration list for PBXProject "watchosexample" */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012 /* Debug */, A00000000000000000000013 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A0000000000000000000000D /* Project object */;
+}

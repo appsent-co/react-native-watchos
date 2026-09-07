@@ -30,6 +30,7 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     // fibers, timers, websockets) and the native UIManager registry get
     // fully torn down. See `recreateHost`.
     private var host: RNWHermesHost
+    private let runtimeBindingFactory: (() -> RNWRuntimeBinding)?
     // Indirection box so the public `eventBus` closure can be built once
     // and still reach the *current* host after a reload swap. The closure
     // fires from SwiftUI action closures (any thread), so it can't read
@@ -44,7 +45,9 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     private var devServer: (host: String, port: Int)?
 
     public init() {
-        let host = RNWHermesHost()
+        let factory = Self.configuredRuntimeBindingFactory()
+        self.runtimeBindingFactory = factory
+        let host = RNWHermesHost(runtimeBinding: factory?())
         self.host = host
         self.hostRef.current = host
 
@@ -54,6 +57,21 @@ public final class ReactNativeWatchOSHost: ObservableObject {
             hostRef.current?.fireEvent(withHandlerId: handlerId, payload: payload)
         }
         wireHost()
+    }
+
+    private static func configuredRuntimeBindingFactory() -> (() -> RNWRuntimeBinding)? {
+        guard let configured = Bundle.main.object(forInfoDictionaryKey: "RNWRuntimeBindingFactory") else {
+            return nil
+        }
+        guard let className = configured as? String,
+              !className.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let factory = NSClassFromString(className) as? RNWRuntimeBindingFactory.Type else {
+            preconditionFailure(
+                "[ReactNativeWatchOS] RNWRuntimeBindingFactory must name a linked class " +
+                "implementing RNWRuntimeBindingFactory. Check the watch target's optional pods."
+            )
+        }
+        return { factory.makeRuntimeBinding() }
     }
 
     deinit {
@@ -90,32 +108,36 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         }
         notificationObservers.append(observer)
 
-        host.onConsoleLog = { [weak self] level, message in
-        // TODO: Prod build error reporting
-        // Only error-level logs drive the toast (see `lastErrorAt`);
-        // a plain console.log must not raise it.
-        if level == .error {
-            self?.lastErrorAt = Date()
-        }
-        #if DEBUG
-            let server = self?.devServer
+        let sourceHost = host
+        host.onConsoleLog = { [weak self, weak sourceHost] level, message in
+            guard let self, let sourceHost, self.host === sourceHost else { return }
+            // TODO: Prod build error reporting
+            // Only error-level logs drive the toast (see `lastErrorAt`);
+            // a plain console.log must not raise it.
+            if level == .error {
+                self.lastErrorAt = Date()
+            }
+            #if DEBUG
+            let server = self.devServer
             Self.reportToMetro(
                 level: Self.levelName(level),
                 message: message,
                 serverHost: server?.host ?? "127.0.0.1",
                 port: server?.port ?? 8081
             )
-#endif
+            #endif
         }
-        host.onCommit = { [weak self] snapshot in
+        host.onCommit = { [weak self, weak sourceHost] snapshot in
             let next = snapshot ?? []
-            Task { @MainActor [weak self] in
-                self?.root = next
+            Task { @MainActor [weak self, weak sourceHost] in
+                guard let self, let sourceHost, self.host === sourceHost else { return }
+                self.root = next
             }
         }
-        host.onReloadRequest = { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.onReloadRequest?()
+        host.onReloadRequest = { [weak self, weak sourceHost] in
+            Task { @MainActor [weak self, weak sourceHost] in
+                guard let self, let sourceHost, self.host === sourceHost else { return }
+                self.onReloadRequest?()
             }
         }
     }
@@ -127,12 +149,12 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     /// WebSocket churns. The old JS heap only goes away when its
     /// `RNWHermesHost` is released.
     private func recreateHost() {
-        // Hand the old host off so its dealloc — which `dispatch_sync`s
-        // onto its JS queue to drop the runtime — doesn't stall main
-        // mid-reload. The new host runs on its own private queue, so
+        // Hand the old host off so its dealloc — which synchronously schedules
+        // runtime destruction on its JS thread — doesn't stall main
+        // mid-reload. The new host runs on its own dedicated thread, so
         // there's no ordering dependency.
         let old = host
-        let next = RNWHermesHost()
+        let next = RNWHermesHost(runtimeBinding: runtimeBindingFactory?())
         host = next
         hostRef.current = next
         // Drop the prior bundle's tree so it doesn't linger on screen
