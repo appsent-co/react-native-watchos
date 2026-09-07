@@ -8,11 +8,9 @@
 #include <cassert>
 
 int main() {
-    static const char queueKey = 0;
-    dispatch_queue_t queue = dispatch_queue_create("rnw.integration", DISPATCH_QUEUE_SERIAL);
-    dispatch_queue_set_specific(queue, &queueKey, (void *)&queueKey, nullptr);
-    facebook::react::RNWJSQueue jsQueue{queue, &queueKey};
-    dispatch_sync(queue, ^{
+    RNWJSThread *thread = [RNWJSThread new];
+    facebook::react::RNWJSQueue jsQueue{thread};
+    jsQueue.runSync(^{
     @autoreleasepool {
         auto runtime = facebook::hermes::makeHermesRuntime();
         auto &rt = *runtime;
@@ -37,6 +35,16 @@ int main() {
             ]) {
                 var ws = new WebSocket(pair[0], ['chat', 'CHAT']);
                 assert(ws.url === pair[1]);
+                // Run in Hermes, whose default compiler does not preserve a
+                // captured const binding per loop iteration in embedded JS.
+                var seen = [];
+                ['open', 'message', 'error', 'close'].forEach(function (type) {
+                    ws['on' + type] = function () { seen.push(type); };
+                });
+                ['open', 'message', 'error', 'close'].forEach(function (type) {
+                    ws.dispatchEvent({type: type});
+                });
+                assert(seen.join(',') === 'open,message,error,close');
                 ws.close();
                 ws._state.native.dispose();
             }
@@ -86,4 +94,5 @@ int main() {
         jsQueue.invalidate();
     }
     });
+    [thread stop];
 }

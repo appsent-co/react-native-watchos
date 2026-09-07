@@ -10,8 +10,30 @@ typedef NS_ENUM(NSInteger, RNWLogLevel) {
     RNWLogLevelInfo,
 };
 
-/// Owns a Hermes JS runtime via JSI. The runtime lives on a private serial
-/// dispatch queue (the "JS queue") so main-thread SwiftUI work isn't blocked.
+/// Schedules work on this runtime's serial JS queue and drains microtasks.
+/// Safe to retain after host teardown: late callbacks are discarded.
+typedef void (^RNWJavaScriptScheduler)(dispatch_block_t callback);
+
+/// Optional native runtime extension. Both methods run on the JS queue.
+/// An implementation must release its JSI handles in `invalidate`, before the
+/// host destroys Hermes, and must not retain the host itself.
+@protocol RNWRuntimeBinding <NSObject>
+- (void)installInRuntime:(void *)runtime
+     scheduleJavaScript:(RNWJavaScriptScheduler)schedule
+    NS_SWIFT_NAME(install(runtime:schedule:));
+- (void)invalidate;
+@end
+
+/// Optional app-configured runtime extension factory. Implementations must
+/// return a fresh binding for each call; no binding may span multiple runtimes.
+/// ReactNativeWatchOSHost resolves the class named by the RNWRuntimeBindingFactory
+/// Info.plist key when an explicit Swift factory was not supplied.
+@protocol RNWRuntimeBindingFactory <NSObject>
++ (id<RNWRuntimeBinding>)makeRuntimeBinding;
+@end
+
+/// Owns a Hermes JS runtime via JSI. The runtime lives on a dedicated
+/// JavaScript thread (the "JS queue") so main-thread SwiftUI work isn't blocked.
 /// All public methods are thread-safe — they hop to the JS queue internally.
 ///
 /// Installs `globalThis.__RNW_log(level, message)` and a minimal one-arg
@@ -19,7 +41,12 @@ typedef NS_ENUM(NSInteger, RNWLogLevel) {
 /// `src/setupConsole.ts` and routes through `__RNW_log` to `onConsoleLog`.
 @interface RNWHermesHost : NSObject
 
-- (instancetype)init NS_DESIGNATED_INITIALIZER;
+- (instancetype)init;
+
+/// Installs an optional binding after the host globals and before any JS is
+/// evaluated. The host owns the binding until runtime teardown.
+- (instancetype)initWithRuntimeBinding:(nullable id<RNWRuntimeBinding>)binding
+    NS_DESIGNATED_INITIALIZER;
 
 /// Evaluate JS on the JS queue. `data` may hold UTF-8 source or
 /// pre-compiled Hermes bytecode — Hermes detects which via the buffer's

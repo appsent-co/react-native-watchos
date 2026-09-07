@@ -37,10 +37,6 @@ namespace fbhermes = facebook::hermes;
 
 namespace {
 
-// Identity key for `dispatch_queue_set_specific`. GCD compares by pointer.
-char kRNWJSQueueKeyByte = 0;
-void* const kRNWJSQueueKey = &kRNWJSQueueKeyByte;
-
 // Zero-copy read-only jsi::Buffer over an NSData. Hermes reads its bytes
 // during evaluateJavaScript; the NSData retain keeps the storage alive
 // for the duration of the call (and for the lifetime of any cached
@@ -60,10 +56,7 @@ private:
 
 @implementation RNWHermesHost {
     std::shared_ptr<jsi::Runtime> _runtime;
-    // Serial queue that owns the runtime. Every `_runtime` access must
-    // happen here. Tagged with `kRNWJSQueueKey` so `dispatch_get_specific`
-    // can answer "am I on the JS queue?".
-    dispatch_queue_t _jsQueue;
+    RNWJSThread *_jsThread;
     facebook::react::RNWJSQueue _jsQueueRef;
     std::unordered_map<uint64_t, std::shared_ptr<jsi::Function>> _timers;
     // Interval-only: setTimeout uses one-shot dispatch_after.
@@ -71,26 +64,27 @@ private:
     uint64_t _nextTimerId;
     std::shared_ptr<facebook::react::CallInvoker> _jsCallInvoker;
     std::shared_ptr<facebook::react::NativeMethodCallInvoker> _nativeMethodCallInvoker;
+    id<RNWRuntimeBinding> _runtimeBinding;
 }
 
-- (instancetype)init {
+- (instancetype)init { return [self initWithRuntimeBinding:nil]; }
+
+- (instancetype)initWithRuntimeBinding:(id<RNWRuntimeBinding>)binding {
     if ((self = [super init])) {
-        _jsQueue = dispatch_queue_create(
-            "com.appsent.reactnativewatchos.js",
-            DISPATCH_QUEUE_SERIAL);
-        dispatch_queue_set_specific(_jsQueue, kRNWJSQueueKey, kRNWJSQueueKey, NULL);
-        _jsQueueRef = facebook::react::RNWJSQueue{_jsQueue, kRNWJSQueueKey};
+        _runtimeBinding = binding;
+        _jsThread = [RNWJSThread new];
+        _jsQueueRef = facebook::react::RNWJSQueue{_jsThread};
         _nextTimerId = 1;
 
         // Construct and install on the JS queue so the "runtime touched only
         // from the JS queue" invariant holds from the very first JSI call.
-        dispatch_sync(_jsQueue, ^{
+        _jsQueueRef.runSync(^{
             // Microtask queue is required: without it `queueMicrotask` is
             // absent, React's scheduler falls through to `setImmediate` (also
             // absent), and Promise continuations may silently never fire.
             // Every native→JS hop must drain afterwards — that's centralized
             // in `RNWJSQueue::runOnJS*` / `invokeOnJS`; never
-            // `dispatch_async(_jsQueue, ...)` a block that touches the runtime.
+            // use raw `runAsync` for a block that touches the runtime.
             auto runtimeConfig =
                 ::hermes::vm::RuntimeConfig::Builder()
                     .withMicrotaskQueue(true)
@@ -116,6 +110,12 @@ private:
             rnwInstallTextDecoder(*_runtime);
             [self installTurboModules];
             [self installNativeModules];
+            if (binding != nil) {
+                auto scheduler = _jsQueueRef;
+                [binding installInRuntime:_runtime.get() scheduleJavaScript:^(dispatch_block_t callback) {
+                    scheduler.runOnJS(^(jsi::Runtime &) { callback(); });
+                }];
+            }
         });
     }
     return self;
@@ -129,17 +129,20 @@ private:
                               jsCallInvoker:nullptr];
 
     // Hermes objects must be destroyed on the JS queue.
-    dispatch_queue_t queue = _jsQueue;
-    if (queue != nil) {
+    if (_jsThread != nil) {
         // Move into captures: ARC is already unwinding `self`, so its ivars
         // can't be dereferenced from inside the block.
         __block std::shared_ptr<jsi::Runtime> runtime = std::move(_runtime);
         __block auto timers = std::move(_timers);
         __block auto intervals = std::move(_intervalSources);
+        __block id<RNWRuntimeBinding> binding = _runtimeBinding;
+        _runtimeBinding = nil;
         facebook::react::RNWJSQueue jsQueueRef = _jsQueueRef;
-        dispatch_sync(queue, ^{
+        jsQueueRef.runSync(^{
             // Ahead of `runtime.reset()`, so hops queued behind this block
             // find a null runtime and return.
+            [binding invalidate];
+            binding = nil;
             jsQueueRef.invalidate();
             for (auto &entry : intervals) {
                 dispatch_source_cancel(entry.second);
@@ -148,6 +151,7 @@ private:
             timers.clear();
             runtime.reset();
         });
+        [_jsThread stop];
     }
 }
 
@@ -322,34 +326,24 @@ private:
 
             int64_t intervalNs = (int64_t)(ms * NSEC_PER_MSEC);
             dispatch_source_t source = dispatch_source_create(
-                DISPATCH_SOURCE_TYPE_TIMER, 0, 0, strongSelf->_jsQueue);
+                DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0));
             dispatch_source_set_timer(
                 source,
                 dispatch_time(DISPATCH_TIME_NOW, intervalNs),
                 (uint64_t)intervalNs,
                 /*leeway=*/0);
-            // Already on the JS queue (source's target queue is `_jsQueue`),
-            // so use `invokeOnJS` instead of re-dispatching via `runOnJS`.
+            auto jsQueueRef = strongSelf->_jsQueueRef;
             dispatch_source_set_event_handler(source, ^{
-                __strong typeof(weakSelf) host = weakSelf;
-                if (host == nil) {
-                    dispatch_source_cancel(source);
-                    return;
-                }
-                auto it = host->_timers.find(id);
-                if (it == host->_timers.end()) {
-                    // clearInterval beat us here; stop firing.
-                    dispatch_source_cancel(source);
-                    host->_intervalSources.erase(id);
-                    return;
-                }
-                auto callback = it->second;
-                host->_jsQueueRef.invokeOnJS(^(jsi::Runtime &rt) {
+                jsQueueRef.runOnJS(^(jsi::Runtime &rt) {
+                    __strong typeof(weakSelf) host = weakSelf;
+                    if (host == nil) return;
+                    auto it = host->_timers.find(id);
+                    if (it == host->_timers.end()) return;
+                    auto callback = it->second;
                     try {
                         callback->call(rt);
                     } catch (const jsi::JSError &e) {
-                        NSLog(@"setInterval callback threw: %s",
-                              e.getMessage().c_str());
+                        NSLog(@"setInterval callback threw: %s", e.getMessage().c_str());
                     } catch (...) {
                         NSLog(@"setInterval callback threw: unknown");
                     }

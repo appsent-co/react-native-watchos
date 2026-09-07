@@ -4,6 +4,7 @@ const withWatchAutolinking = require('./withWatchAutolinking');
 const withWatchBundleScript = require('./withWatchBundleScript');
 const withWatchTurboModuleCodegen = require('./withWatchTurboModuleCodegen');
 const withWatchInfoPlist = require('./withWatchInfoPlist');
+const withWatchExpoModules = require('./withWatchExpoModules');
 
 /**
  * Expo Config Plugin for `@appsent-co/react-native-watchos`.
@@ -54,9 +55,11 @@ const withWatchInfoPlist = require('./withWatchInfoPlist');
  * @property {string} [entryFile] - Path (relative to project root) of the
  *   JS entry. Defaults to auto-detecting `index.watchos.{tsx,ts,jsx,js}`
  *   at build time.
+ * @property {boolean} [expoModules] - Enable non-UI Expo modules. Defaults to
+ *   detecting Expo from the app root; set false to disable the integration.
  * @property {string} [watchosDeploymentTarget] - Minimum watchOS version
- *   advertised to CocoaPods autolinking. Defaults to `"9.0"`, matching
- *   `WATCHOS_DEPLOYMENT_TARGET` in `scripts/build-xcframework.sh`.
+ *   advertised to CocoaPods autolinking. Defaults to `"9.4"` with Expo
+ *   modules enabled, or `"9.0"` otherwise.
  *
  * @type {import('@expo/config-plugins').ConfigPlugin<ReactNativeWatchOSPluginOpts | void>}
  */
@@ -65,16 +68,34 @@ const withReactNativeWatchOS = (config, opts) => {
   const targetName = (opts && opts.targetName) || 'watch';
   const bundleName = (opts && opts.bundleName) || 'main';
   const entryFile = opts && opts.entryFile;
-  const watchosDeploymentTarget = opts && opts.watchosDeploymentTarget;
+  const expoModules = withWatchExpoModules.resolveEnabled(
+    config._internal?.projectRoot || process.cwd(),
+    opts?.expoModules
+  );
+  const watchosDeploymentTarget = withWatchExpoModules.deploymentTarget(
+    opts && opts.watchosDeploymentTarget,
+    expoModules
+  );
   return withPlugins(config, [
     // Run codegen BEFORE the bundle script so the generated sources are
     // wired into the watch target's pbxproj when Xcode opens it (the
     // bundle script is a separate Run Script phase that doesn't depend
     // on codegen output, but ordering keeps the diff readable).
     [withWatchTurboModuleCodegen, { targetName }],
-    [withWatchAutolinking, { targetName, watchosDeploymentTarget }],
+    [
+      withWatchAutolinking,
+      { targetName, watchosDeploymentTarget, expoModules },
+    ],
     [withWatchBundleScript, { targetName, bundleName, entryFile }],
     [withWatchInfoPlist, { targetName }],
+    [
+      withWatchExpoModules,
+      {
+        targetName,
+        enabled: expoModules,
+        minimumVersion: watchosDeploymentTarget,
+      },
+    ],
   ]);
 };
 

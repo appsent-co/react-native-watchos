@@ -55,3 +55,7 @@ docs/.cache-loader/
 
 # Written by @bacons/apple-targets from expo-target.config on every prebuild.
 example/targets/*/generated.entitlements
+
+expo-modules/core/build/
+expo-modules/jsi/build/
+expo-modules/build-manifest.json

@@ -12,6 +12,8 @@ WebViews, no canvas, no compromises.
 
 ## Quick start (Expo)
 
+Use Expo **57.0.19–57.0.20**, React Native **0.86.3**, React **19.2.3**, and Xcode **26.6**.
+
 ```sh
 npx expo install @appsent-co/react-native-watchos @bacons/apple-targets
 npx react-native-watchos init
@@ -30,7 +32,9 @@ requests:
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config');
-const { withWatchosMetro } = require('@appsent-co/react-native-watchos/metro-config');
+const {
+  withWatchosMetro,
+} = require('@appsent-co/react-native-watchos/metro-config');
 
 module.exports = withWatchosMetro(getDefaultConfig(__dirname));
 ```
@@ -70,6 +74,11 @@ itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
 **TurboModules** — Create native modules in Swift / Obj-C++ and call
 them from JS with full codegen support.
 
+**Expo Modules** — Automatic non-UI integration for Expo 57 apps on watchOS 9.4+: the
+Swift Module DSL, synchronous and asynchronous functions, events, and shared
+objects, with registration and runtime setup handled by prebuild. Packages
+must explicitly support watchOS. See [the integration guide](./docs/docs/native/expo-modules.md).
+
 **Watch Connectivity** — Bidirectional messaging, user-info / app
 context sync, reachability and activation state, binary payloads —
 exposed from [`src/watchConnectivity/`](./src/watchConnectivity/).
@@ -79,7 +88,7 @@ exposed from [`src/watchConnectivity/`](./src/watchConnectivity/).
 (~2.3g), on-device error toast, and `console.*` forwarded to the Metro
 terminal.
 
-**Expo plugin** — Wires the Swift Package into your watch target, runs
+**Expo plugin** — Wires the CocoaPods runtime into your watch target, runs
 autolinking with a customizable watchOS deployment target, installs the
 Release bundle build phase (`expo export:embed --platform watchos`),
 runs codegen for the WatchConnectivity spec, and keeps the runtime's

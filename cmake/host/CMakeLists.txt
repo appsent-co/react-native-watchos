@@ -122,6 +122,7 @@ rnw_embed_javascript(TextDecoder)
 add_library(RNWHost STATIC
     ${RNW_RUNTIME_HEADERS}
     "${SOURCES_DIR}/RNWHermesHost.mm"
+    "${SOURCES_DIR}/RNWJSThread.mm"
     "${SOURCES_DIR}/RNWShadowNode.mm"
     "${SOURCES_DIR}/RNWUIManager.mm"
     "${SOURCES_DIR}/RNWWebSocket.mm"

@@ -173,6 +173,15 @@ export function createHostConfig(): Record<string, unknown> {
     shouldAttemptEagerTransition(): boolean {
       return false;
     },
+    // React 19.2 requests event metadata for scheduling/profiling. Events
+    // arrive through our JSI bridge, without a browser-style current event.
+    resolveEventType(): null {
+      return null;
+    },
+    resolveEventTimeStamp(): number {
+      return -1.1;
+    },
+    trackSchedulerEvent() {},
 
     // Suspense-on-commit hooks. Called during render/commit even when the
     // tree contains no <Suspense>, so they must exist. We don't suspend.
@@ -185,6 +194,9 @@ export function createHostConfig(): Record<string, unknown> {
     startSuspendingCommit() {},
     suspendInstance() {},
     waitForCommitToBeReady(): null {
+      return null;
+    },
+    getSuspendedCommitReason(): null {
       return null;
     },
 
