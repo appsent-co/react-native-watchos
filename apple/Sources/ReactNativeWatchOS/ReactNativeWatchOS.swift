@@ -26,13 +26,6 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     /// full-reload path). The view wires this to its `load()` task.
     public var onReloadRequest: (() -> Void)?
 
-    /// Receives console output on main, including output from subsequent reloads.
-    public var onConsoleLog: ((RNWLogLevel, String) -> Void)?
-
-    /// Optional Objective-C factory class configured by a native integration.
-    /// No factory is loaded unless this key or an explicit closure is provided.
-    public static let runtimeBindingFactoryInfoKey = "RNWRuntimeBindingFactory"
-
     // Swapped out on every reload so the previous bundle's JS heap (modules,
     // fibers, timers, websockets) and the native UIManager registry get
     // fully torn down. See `recreateHost`.
@@ -51,11 +44,8 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     // even when it isn't on the default 127.0.0.1:8081. nil for file://.
     private var devServer: (host: String, port: Int)?
 
-    /// An explicit factory overrides the app's Info.plist configuration. It is
-    /// called once for the initial runtime and again for each bundle reload,
-    /// and must return a fresh binding each time.
-    public init(runtimeBindingFactory: (() -> RNWRuntimeBinding)? = nil) {
-        let factory = runtimeBindingFactory ?? Self.configuredRuntimeBindingFactory()
+    public init() {
+        let factory = Self.configuredRuntimeBindingFactory()
         self.runtimeBindingFactory = factory
         let host = RNWHermesHost(runtimeBinding: factory?())
         self.host = host
@@ -70,7 +60,7 @@ public final class ReactNativeWatchOSHost: ObservableObject {
     }
 
     private static func configuredRuntimeBindingFactory() -> (() -> RNWRuntimeBinding)? {
-        guard let configured = Bundle.main.object(forInfoDictionaryKey: runtimeBindingFactoryInfoKey) else {
+        guard let configured = Bundle.main.object(forInfoDictionaryKey: "RNWRuntimeBindingFactory") else {
             return nil
         }
         guard let className = configured as? String,
@@ -121,7 +111,6 @@ public final class ReactNativeWatchOSHost: ObservableObject {
         let sourceHost = host
         host.onConsoleLog = { [weak self, weak sourceHost] level, message in
             guard let self, let sourceHost, self.host === sourceHost else { return }
-            self.onConsoleLog?(level, message)
             // TODO: Prod build error reporting
             // Only error-level logs drive the toast (see `lastErrorAt`);
             // a plain console.log must not raise it.

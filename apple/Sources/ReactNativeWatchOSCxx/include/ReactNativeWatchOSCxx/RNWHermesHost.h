@@ -27,7 +27,7 @@ typedef void (^RNWJavaScriptScheduler)(dispatch_block_t callback);
 /// Optional app-configured runtime extension factory. Implementations must
 /// return a fresh binding for each call; no binding may span multiple runtimes.
 /// ReactNativeWatchOSHost resolves the class named by the RNWRuntimeBindingFactory
-/// Info.plist key when an explicit Swift factory was not supplied.
+/// Info.plist key.
 @protocol RNWRuntimeBindingFactory <NSObject>
 + (id<RNWRuntimeBinding>)makeRuntimeBinding;
 @end

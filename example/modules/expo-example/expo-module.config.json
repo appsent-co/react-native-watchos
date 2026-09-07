@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "watchos"],
+  "apple": { "modules": ["ExampleExpoModule"] },
+  "watchos": {
+    "modules": ["ExampleExpoModule"],
+    "podspecPath": "ExampleExpo.podspec",
+    "swiftModuleName": "ExampleExpo"
+  }
+}

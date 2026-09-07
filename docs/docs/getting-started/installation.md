@@ -142,11 +142,7 @@ You should see `Hello from watchOS` on the watch face. Edit
 ```tsx title="index.watchos.tsx"
 import '@appsent-co/react-native-watchos/dev-support';
 
-import {
-  render,
-  Text,
-  VStack,
-} from '@appsent-co/react-native-watchos/renderer';
+import { render, Text, VStack } from '@appsent-co/react-native-watchos/renderer';
 
 function App() {
   return (

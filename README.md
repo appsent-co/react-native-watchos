@@ -32,9 +32,7 @@ requests:
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config');
-const {
-  withWatchosMetro,
-} = require('@appsent-co/react-native-watchos/metro-config');
+const { withWatchosMetro } = require('@appsent-co/react-native-watchos/metro-config');
 
 module.exports = withWatchosMetro(getDefaultConfig(__dirname));
 ```

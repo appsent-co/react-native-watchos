@@ -3,7 +3,7 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const semver = require('semver');
 const versions = require('./versions.json');
-const consumerCompatibility = require('./consumer-compatibility.json');
+const expoRange = require('../package.json').peerDependencies.expo;
 
 function resolver(projectRoot) {
   const appRequire = createRequire(
@@ -47,15 +47,14 @@ function resolveNativeBuild(projectRoot) {
 
 function resolveCompatibility(projectRoot) {
   const expo = resolver(projectRoot)('expo');
-  if (!semver.satisfies(expo.version, consumerCompatibility.expo))
+  if (!semver.satisfies(expo.version, expoRange))
     throw new Error(
-      `[RNW Expo modules] Expo ${expo.version} is outside the tested range ${consumerCompatibility.expo}. See expo-modules/consumer-compatibility.json.`
+      `[RNW Expo modules] Expo ${expo.version} is outside the tested range ${expoRange}.`
     );
   return { expo, ...resolveNativeBuild(projectRoot) };
 }
 module.exports = {
   versions,
-  consumerCompatibility,
   resolveCompatibility,
   resolveNativeBuild,
 };

@@ -61,7 +61,6 @@
     "release": "release-it --only-version",
     "prepublishOnly": "pnpm build:xcframework && pnpm build:expo-modules",
     "build:expo-modules": "./scripts/build-expo-modules.sh",
-    "test:expo-modules": "./poc/expo-smoke/run.sh",
     "verify:package": "node ./scripts/verify-package.cjs",
     "prepack": "node ./scripts/verify-package.cjs"
   },

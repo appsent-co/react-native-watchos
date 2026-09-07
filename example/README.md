@@ -8,103 +8,31 @@ Metro dev server the phone uses, but bundled with `?platform=watchos`.
 from [`@appsent-co/react-native-watchos/metro-config`](../metro-config.js), which is what
 teaches Metro to resolve `*.watchos.{ts,tsx,js,jsx}` for that platform query.
 
-## What runs
-
-1. The Watch app's `ContentView` instantiates `ReactNativeWatchOSHost`
-   (from the local Swift Package at the repo root).
-2. On view appear, it calls
-   `URLSession.shared.data(from: ReactNativeWatchOSHost.metroBundleURL(entry: "example/index.watchos"))`,
-   which resolves to
-   `http://127.0.0.1:8081/example/index.watchos.bundle?platform=watchos&dev=true&minify=false`.
-   The `example/` prefix is needed because this repo is a pnpm workspace —
-   Expo serves bundles under `/<package>/…`. The `.watchos` suffix is
-   required because Metro's entry-point resolution is literal; the
-   `.watchos.*` extension only applies to in-graph `require`s, not the
-   entry path. Without it, Metro would resolve `example/index` to
-   `example/index.js`. A standalone Expo app would just use the default
-   `metroBundleURL()` (no `entry:`) — the default is `"index.watchos"`.
-3. Metro builds [`index.watchos.tsx`](index.watchos.tsx) and streams the
-   bundle back.
-4. The downloaded text is passed to `RNWHermesHost.evaluate(...)`, which
-   feeds it to `hermes::makeHermesRuntime()->evaluateJavaScript(...)`.
-5. The bundle calls `console.log/warn/error/info`. Each call hits a JSI
-   `HostFunction` that stringifies args and forwards them to a Swift block.
-6. The Swift facade appends each entry to an `@Published` array — the
-   SwiftUI `List` renders it.
-
 ## Running
 
-### 1. Build the XCFrameworks (one-time)
-
-From the repo root:
+Build the native frameworks and generate the iPhone/watch project from the repo root:
 
 ```sh
-./scripts/build-xcframework.sh
+pnpm build:xcframework
+pnpm build:expo-modules
+pnpm --dir example exec expo prebuild -p ios --no-install
+(cd example/ios && pod install)
 ```
 
-Produces `build/xcframework/Hermes.xcframework` and
-`build/xcframework/ReactNativeWatchOSCxx.xcframework`. First run is slow
-(~10 min) because it clones Hermes and builds it from source.
+Start Metro with `pnpm --dir example start`, open
+`example/ios/watchosexample.xcworkspace`, and run the `watch` scheme on a watch
+simulator. Release builds embed the JavaScript bundle and run without Metro.
 
-### 2. Start Metro
+## Expo Modules example
 
-From this directory:
+Open **Demos → Expo Modules** on the watch. It displays **Hello from Expo Modules!**
+by calling a synchronous Swift `Function` and an `AsyncFunction` through
+`requireNativeModule`.
 
-```sh
-npx expo start
-```
-
-Leave it running. Sanity-check the watchOS bundle resolves:
-
-```sh
-curl -s 'http://127.0.0.1:8081/example/index.watchos.bundle?platform=watchos&dev=true&minify=false' | head -20
-```
-
-You should see Metro's wrapper plus the `console.*` calls from
-`index.watchos.tsx`.
-
-> **pnpm workspace note:** if you're following this example as a template
-> outside of a workspace, drop the `example/` prefix from both the curl
-> command above and the `entry:` argument in `ContentView.swift` — your
-> bundle will be served at `/index.watchos.bundle` instead.
-
-### 3. Wire the local Swift Package into Xcode (one-time)
-
-The Watch target needs to know about `apple/Package.swift`. This has to be
-done once via the Xcode UI — the pbxproj edits aren't worth hand-crafting.
-
-1. Open `ios/WatchosExample.xcworkspace` in Xcode.
-2. `File` → `Add Package Dependencies…` → `Add Local…`.
-3. Navigate to the `apple/` directory (which contains `Package.swift`),
-   click **Add Package**.
-4. In the product picker, add `ReactNativeWatchOS` to the
-   `WatchApp Watch App` target only.
-5. Verify the Watch target's **General** → **Frameworks, Libraries, and
-   Embedded Content** lists `ReactNativeWatchOS` and that
-   `Hermes.xcframework` is set to **Embed & Sign**.
-6. Commit the resulting pbxproj diff.
-
-### 4. Run the watch app
-
-1. Scheme: `WatchApp Watch App`.
-2. Destination: an Apple Watch simulator (any modern one — arm64 only
-   currently).
-3. Build & run.
-
-### 5. Expected output
-
-The bundle loads automatically on view appear. Four entries appear in the
-SwiftUI list, status flips to `ok`:
-
-```
-log     hello from hermes on the watch
-warn    this is a warning
-error   this is an error
-info    platform: 2 {"ok":true,"list":[1,2,3]}
-```
-
-Edit `index.watchos.ts` and tap the reload button in the corner — the
-watch re-fetches and re-evaluates without rebuilding the native app.
+The local module is in [`modules/expo-example`](modules/expo-example). Expo discovers
+it automatically from `example/modules`; its config declares both Apple and watchOS
+support. The podspec uses stock Expo Core on iOS and RNWExpoModulesCore on watchOS.
+The Swift implementation is shared by both targets.
 
 ## Dev-server endpoint (host / port)
 

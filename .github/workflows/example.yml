@@ -1,0 +1,45 @@
+name: Example app
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: example-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  watchos:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/setup
+      - run: node --test tests/js-thread.test.mjs
+      - run: pnpm build:xcframework && pnpm build:expo-modules
+      - run: pnpm --dir example exec expo prebuild -p ios --no-install
+      - run: pod install
+        working-directory: example/ios
+      - name: Build iPhone and watch example
+        run: >-
+          xcodebuild -workspace example/ios/watchosexample.xcworkspace
+          -scheme watchosexample -configuration Release
+          -destination 'generic/platform=iOS Simulator'
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+      - name: Build watch device architectures
+        run: >-
+          xcodebuild -workspace example/ios/watchosexample.xcworkspace
+          -scheme watch -configuration Release
+          -destination 'generic/platform=watchOS'
+          ARCHS='arm64 arm64_32' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+      - run: pnpm verify:package

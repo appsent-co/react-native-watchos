@@ -5,7 +5,6 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   versions,
-  consumerCompatibility,
   resolveCompatibility,
   resolveNativeBuild,
 } = require('../expo-modules/compatibility.cjs');
@@ -36,7 +35,7 @@ function fixture(t, expoVersion) {
 }
 
 test('each supported Expo patch works without app Core or JSI sources', (t) => {
-  for (const version of consumerCompatibility.testedExpoVersions) {
+  for (const version of ['57.0.19', '57.0.20']) {
     const app = fixture(t, version);
     const packages = resolveCompatibility(app.root);
     assert.equal(packages.expo.version, version);
@@ -69,7 +68,7 @@ test('untested Expo releases and prereleases fail clearly', (t) => {
 });
 
 test('consumer and build checks retain React Native and Hermes ABI constraints', (t) => {
-  const app = fixture(t, consumerCompatibility.defaultExpoVersion);
+  const app = fixture(t, '57.0.20');
   app.pkg('react-native', '0.86.4');
   assert.throws(
     () => resolveCompatibility(app.root),
@@ -81,16 +80,4 @@ test('consumer and build checks retain React Native and Hermes ABI constraints',
   app.pkg('react', versions.react);
   fs.writeFileSync(app.hermes, 'different-hermes');
   assert.throws(() => resolveCompatibility(app.root), /Expected Hermes/);
-});
-
-test('consumer defaults and package peer range match the tested policy', () => {
-  assert.ok(
-    consumerCompatibility.testedExpoVersions.includes(
-      consumerCompatibility.defaultExpoVersion
-    )
-  );
-  assert.equal(
-    require('../package.json').peerDependencies.expo,
-    consumerCompatibility.expo
-  );
 });

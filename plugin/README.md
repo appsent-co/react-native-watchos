@@ -31,8 +31,8 @@ Expo’s Metro configuration.
 The plugin generates `targets/<name>/pods.rb`, registers watch-compatible native
 pods, runs TurboModule codegen, and installs the Release bundle phase. It adds
 Metro endpoint and local-networking keys to the watch Info.plist. Existing
-hand-managed `pods.rb` files are preserved with `expoModules: false`; to use Expo
-Modules with these files, follow the manual integration in the guide below.
+hand-managed `pods.rb` files are preserved with `expoModules: false`; Expo Modules
+require the plugin-managed pod configuration.
 
 Non-UI Expo Modules are enabled automatically when `expo` resolves from the app
 root, even if the watch target has no Expo modules. Set `expoModules: false` to
@@ -40,7 +40,7 @@ disable this integration. Prebuild generates a Swift provider, configures the
 runtime binding for initial load and reload, and rejects unsupported package
 versions or watch module metadata. Packages must declare watchOS support
 explicitly. See [the Expo Modules guide](../docs/docs/native/expo-modules.md)
-for the exact supported SDK versions, module-author contract, and manual setup.
+for supported versions and module setup, or see the local module in `example/modules`.
 
 Published packages contain the native frameworks and maintained Expo Core sources;
 consumers do not compile Hermes or apply source patches. Supported app Expo patches

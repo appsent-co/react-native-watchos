@@ -14,9 +14,9 @@ public struct ReactNativeWatchOSView: View {
 
     private let bundleURL: URL
 
-    public init(bundleURL: URL, runtimeBindingFactory: (() -> RNWRuntimeBinding)? = nil) {
+    public init(bundleURL: URL) {
         self.bundleURL = bundleURL
-        _host = StateObject(wrappedValue: ReactNativeWatchOSHost(runtimeBindingFactory: runtimeBindingFactory))
+        _host = StateObject(wrappedValue: ReactNativeWatchOSHost())
     }
 
     public var body: some View {

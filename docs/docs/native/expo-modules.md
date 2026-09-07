@@ -5,271 +5,125 @@ sidebar_position: 2
 
 # Expo Modules on watchOS
 
-The optional Expo Modules runtime lets a watch target use the public non-UI
-API from `expo-modules-core`. A dedicated JavaScript thread lets us use Expo's
-runtime and scheduler implementations unchanged. Maintainer builds apply small
-patches to disposable upstream source copies for non-UI compilation and watchOS
-build settings. Apps receive the prepared sources and native frameworks; their
-installed Expo sources are never modified.
+Expo Modules are enabled automatically when Expo is installed. Watch-capable modules
+can use the Swift Module DSL, functions, promises, events, records, enums, and shared
+objects. A dedicated JavaScript thread lets Expo's JSI runtime compile unchanged;
+small build patches exclude React UI dependencies from Core.
 
-The config plugin enables the runtime automatically when Expo is installed.
-Native modules must explicitly support watchOS to be registered.
+## Requirements
 
-## Supported release matrix
+| Component | Version |
+| --- | --- |
+| Expo | 57.0.19–57.0.20 |
+| React Native / React | 0.86.3 / 19.2.3 |
+| watchOS | 9.4 or later |
+| Xcode | 26.6 (Swift 6.3) |
+| Native build inputs | Expo Core 57.0.16, JSI 57.0.8, Hermes `hermes-v250829098.0.17` |
 
-| Component         | Required version                |
-| ----------------- | ------------------------------- |
-| Expo              | 57.0.19–57.0.20                         |
-| Build Core     | 57.0.16                         |
-| Build JSI      | 57.0.8                          |
-| React Native      | 0.86.3                          |
-| React             | 19.2.3                          |
-| Hermes            | `hermes-v250829098.0.17`        |
-| watchOS           | 9.4 or later                    |
-| Build toolchain   | Xcode 26.6 (Swift 6.3 compiler) |
+The Expo peer dependency defines the supported app range. `expo-modules/versions.json`
+pins the sources used to build the native runtime. Apps receive the prepared Core
+sources and native frameworks; their installed Expo packages are never patched.
 
-The app's Expo compatibility range is separate from the native source baseline.
-`consumer-compatibility.json` lists tested Expo patches; `versions.json` pins the
-upstream Core/JSI packages used by the maintainer build. React Native, React,
-and Hermes remain tied to the shipped runtime and renderer. Module discovery
-uses this package's autolinker against the app's dependency graph.
+## Setup
 
-See `expo-modules/README.md` in the repository for the patches and build process.
-
-## Enable the config plugin
-
-Add the watch target plugin after `@bacons/apple-targets`:
+Register the plugin after `@bacons/apple-targets` and run `npx expo prebuild -p ios`:
 
 ```json
 {
   "expo": {
     "plugins": [
       "@bacons/apple-targets",
-      [
-        "@appsent-co/react-native-watchos",
-        {
-          "targetName": "watch"
-        }
-      ]
+      ["@appsent-co/react-native-watchos", { "targetName": "watch" }]
     ]
   }
 }
 ```
 
-Then regenerate native files:
+Prebuild discovers watch-capable modules, generates their Swift provider, wires the
+pods, and configures a fresh Expo binding for each host and reload. This also works
+with an empty provider. Set `expoModules: false` to disable the integration.
 
-```sh
-npx expo prebuild -p ios
-```
+Expo integration requires the plugin-managed `targets/watch/pods.rb`. If you have
+customized this generated file, keep a copy of your changes and let prebuild
+regenerate it before applying the custom pod declarations again.
 
-When `expoModules` is omitted, the plugin checks whether `expo/package.json`
-resolves from the app root, including hoisted dependencies. Installed Expo enables
-the integration even when there are no watch-capable modules; the generated
-provider is then empty. Set `expoModules: false` to disable the integration, or
-`true` to require it explicitly. The supported release matrix is checked whenever
-the integration is enabled.
+## Add a module
 
-The plugin raises the watch deployment target to 9.4 when necessary, discovers
-watch-capable Expo modules, generates `RNWExpoModulesProvider.swift`, adds that
-Swift file to the watch target, and writes `RNWRuntimeBindingFactory` to the watch target's
-`Info.plist`. The host reads that factory to create a fresh Expo runtime binding
-for every Hermes host and reload.
+The repository's [local example module](https://github.com/appsent-co/react-native-watchos/tree/main/example/modules/expo-example)
+shows the complete setup. Local modules live in an app's `modules/` directory and
+are discovered automatically. Installed packages use the same metadata.
 
-The generated provider only accepts packages that explicitly declare watchOS
-support. A hand-managed `targets/<watch>/pods.rb` intentionally causes a
-plugin error while the integration is enabled, because the provider, Podfile,
-and Info.plist factory must agree. Set `expoModules: false` and use the manual
-integration below for that case.
-
-## Author a watch-capable Expo module
-
-A package must advertise watchOS separately from Expo's Apple support. For a
-module named `FooModule`, add `expo-module.config.json`:
+Declare watchOS separately from Expo's Apple platform:
 
 ```json
 {
   "platforms": ["apple", "watchos"],
-  "apple": { "modules": ["FooModule"] },
+  "apple": { "modules": ["ExampleExpoModule"] },
   "watchos": {
-    "modules": ["FooModule"],
-    "podspecPath": "FooModule.podspec",
-    "swiftModuleName": "FooModule"
+    "modules": ["ExampleExpoModule"],
+    "podspecPath": "ExampleExpo.podspec",
+    "swiftModuleName": "ExampleExpo"
   }
 }
 ```
 
-`watchos.modules` lists public Swift module classes. `swiftModuleName` must
-match the CocoaPods `module_name`, and `podspecPath` must stay within the npm
-package. The generated provider imports that Swift module and registers each
-listed class.
+`watchos.modules` contains public Swift class names. `swiftModuleName` matches the
+pod's Swift module, and `podspecPath` is relative to the module package.
 
-The module can use Expo's normal non-UI DSL:
-
-```swift
-import ExpoModulesCore
-
-public final class FooModule: Module {
-  public func definition() -> ModuleDefinition {
-    Name("FooModule")
-
-    Function("double") { (value: Int) in
-      value * 2
-    }
-
-    AsyncFunction("loadValue") { () -> String in
-      "ready"
-    }
-
-    Events("changed")
-  }
-}
-```
-
-Keep the class public and ensure the class name in `watchos.modules` is exactly
-`FooModule`.
-
-### Scope the pod dependencies by platform
-
-The watch target must use the watch build, while the iOS target continues to
-use stock Expo pods. A minimal podspec is:
+Scope the Core dependency to each platform in the module's podspec:
 
 ```ruby
-Pod::Spec.new do |s|
-  s.name = 'FooModule'
-  s.module_name = 'FooModule'
-  s.version = '1.0.0'
-  s.platforms = { :ios => '16.4', :watchos => '9.4' }
-  s.source_files = 'apple/**/*.{swift,h,m,mm}'
-
-  s.ios.dependency 'ExpoModulesCore'
-  s.watchos.dependency 'RNWExpoModulesCore', '57.0.16'
-end
+s.platforms = { :ios => '16.4', :watchos => '9.4' }
+s.ios.dependency 'ExpoModulesCore'
+s.watchos.dependency 'RNWExpoModulesCore', '57.0.16'
 ```
 
-`RNWExpoModulesCore` is a separate CocoaPods name from iOS
-`ExpoModulesCore`, even though both expose the Swift module named
-`ExpoModulesCore`. Do not add stock `ExpoModulesCore`, `ExpoModulesJSI`, React
-bridge, or Fabric dependencies to the watchOS slice. Keep those dependencies
-inside `s.ios` where needed.
+Both Core pods expose `import ExpoModulesCore` to Swift. JavaScript accesses the
+module through the standard API:
 
-## Manual Podfile integration
+```ts
+import { requireNativeModule } from 'expo-modules-core';
 
-For a deliberately hand-managed watch `pods.rb`, set `expoModules: false` in
-the config plugin. After prebuild and before `pod install`, generate the provider,
-add it as a Swift source in the watch target, and configure the factory explicitly.
-Repeat these steps after each prebuild, which removes plugin-managed Expo files
-and the factory setting when the option is disabled:
-
-```sh
-node node_modules/@appsent-co/react-native-watchos/expo-modules/autolinking.cjs \
-  --project-root . \
-  --provider ios/build/generated/rnw-expo/watch/RNWExpoModulesProvider.swift
+const example = requireNativeModule<{ hello(): string }>('ExampleExpoModule');
+example.hello();
 ```
 
-Inside the watch target's Podfile block, require the shipped helper and call
-it with the same provider path:
+Use `withWatchosMetro` around Expo's Metro config as described in
+[installation](../getting-started/installation.md); it selects the non-UI JavaScript
+entry on watchOS.
 
-```ruby
-require_relative '../node_modules/@appsent-co/react-native-watchos/cocoapods/autolink'
+## Legacy services
 
-use_watchos_modules!(
-  :config_command => [
-    'node', '--no-warnings', '--eval', "require('expo/bin/autolinking')",
-    'expo-modules-autolinking', 'react-native-config', '--json', '--platform', 'ios'
-  ],
-  :expo_modules => true,
-  :project_root => File.expand_path('..', __dir__),
-  :expo_provider => File.expand_path(
-    '../ios/build/generated/rnw-expo/watch/RNWExpoModulesProvider.swift',
-    __dir__
-  )
-)
-```
+The watch build includes per-runtime legacy registry lookup, file-system helpers,
+permission-requester plumbing, `Promise.legacyResolver` / `legacyRejecter`, and
+persistent file logging. Each host owns its registry until teardown.
 
-Add the generated `RNWExpoModulesProvider.swift` to the watch target's Compile
-Sources phase. Set this `Info.plist` entry in the same target:
+Native modules can register internal services with
+`appContext.legacyModuleRegistry?.register(service)` and call `initialize()` to
+inject the registry into `EXModuleRegistryConsumer` services. Register permission
+requesters with `appContext.permissions?.register(requesters)`. Do this during
+module creation, before concurrent work uses the services.
 
-```xml
-<key>RNWRuntimeBindingFactory</key>
-<string>RNWExpoRuntimeBindingFactory</string>
-```
+Native views, Fabric, React bridge APIs, app-delegate hooks, worklets, optimized
+function macros, global legacy module discovery, and the old JavaScript export
+proxy are outside the supported surface. Module implementations must use APIs
+available on watchOS.
 
-The factory and provider are required for initial installation and for reloads.
-Regenerate the provider whenever module dependencies or their
-`expo-module.config.json` files change.
+## Development
 
-## Legacy services available to native modules
-
-The watch build includes these upstream services alongside the modern Module DSL:
-
-| Service | Watch behavior |
-| --- | --- |
-| `Promise.legacyResolver` / `legacyRejecter` | Adapt Objective-C promise callbacks to the owning Hermes runtime. |
-| `AppContext.legacyModule(implementing:)` | Resolve explicitly registered `EXInternalModule` services through a per-host `EXModuleRegistry`, with Expo's normal modern-module fallback. |
-| `AppContext.fileSystem` / `FileSystemUtilities` | Sandbox directory creation, generated file paths, and file-access helpers. The same file-system instance is registered under its legacy interfaces. |
-| `AppContext.permissions` / `EXPermissionsMethodsDelegate` | Register, query, and invoke permission requesters implemented by watch-capable modules. No iOS requester or system permission is enabled automatically. |
-| `PersistentFileLog` / `createPersistentFileLogHandler` | Write, reopen, filter, and clear real log files in Application Support. |
-
-The host creates a separate legacy registry for each runtime and retains it until
-teardown. A native module can explicitly register its service with
-`appContext.legacyModuleRegistry?.register(service)` and call `initialize()` after
-registration to inject the registry into `EXModuleRegistryConsumer` services.
-Register permission requesters with `appContext.permissions?.register(requesters)`.
-Perform service registration during module creation, before concurrent work uses
-those services; Expo's legacy registry is not a concurrent registration API.
-
-This does not enable global `EX_REGISTER_MODULE` discovery or the old exported
-JavaScript module proxy. Native modules still use the modern Module DSL and the
-watch provider described above. Constants tied to an iOS app, view lookup,
-app-delegate hooks, and React UI services remain excluded.
-
-## Development and validation
-
-Maintainers generate the native artifacts before prebuild:
+From the repository root:
 
 ```sh
 pnpm build:xcframework
 pnpm build:expo-modules
-npx expo prebuild -p ios
+pnpm --dir example exec expo prebuild -p ios --no-install
+(cd example/ios && pod install)
 ```
 
-The npm tarball contains the maintained Core sources and prebuilt Expo Modules
-JSI XCFramework. CocoaPods compiles Core with the app; consumers do not generate
-Core or build JSI/Hermes. See the repository's `expo-modules/README.md` for the
-source update and provenance workflow.
+Run the `watch` scheme from `example/ios/watchosexample.xcworkspace` and open
+**Demos → Expo Modules**. Native CI builds the example for iPhone, watch simulator,
+and both watch device architectures. `pnpm test` covers the integration's focused
+unit tests. `pnpm verify:package` checks the generated release artifacts.
 
-The supported non-UI surface includes module lookup through
-`import { requireNativeModule } from 'expo-modules-core'`, synchronous and
-asynchronous functions, events, records, enums, and shared objects. The native
-smoke fixture covers those paths, including runtime cleanup and simultaneous
-direct Expo JSI module isolation. The release gate runs 94 JavaScript assertions
-on the watch simulator, checks all four module instances are destroyed exactly
-once, verifies legacy registries are released, and compiles unsigned builds for
-both watch device architectures.
-Physical-device runtime behavior has not yet been validated.
-
-The non-UI build excludes native views, UIKit/AppKit integration, Fabric, the React
-bridge, app-delegate hooks, worklets and UI runtimes, Expo’s React-driven reload hooks, and
-optimized Expo function macros. A module that needs any of those APIs is not
-supported on watchOS through this integration.
-
-RNW host reloads are supported. Simultaneous-host checks apply to direct Expo
-JSI modules; legacy React Native modules still share process-wide bridge state.
-
-The release workflow also packs the npm artifact and installs it in fresh apps
-for Expo 57.0.19 and 57.0.20. Each case checks automatic detection with an empty provider and opt-out/regeneration,
-verifies the shipped artifact hashes, and builds the app with both stock iOS
-Expo pods and the watch build.
-Run the same gates locally with:
-
-```sh
-pnpm test:expo-modules
-./poc/expo-smoke/run.sh device
-node scripts/test-expo-consumer.cjs all --expo-version 57.0.20
-node scripts/test-expo-consumer.cjs all --expo-version 57.0.19 --workdir build/test-expo-consumer-57.0.19
-```
-
-`npm pack` and publishing fail if native artifacts are missing, stale, or lack
-one of the supported architectures. Regenerate both native builds after changing
-the native ABI baseline or native source inputs. Expanding app Expo support
-requires passing the consumer matrix before changing the declared range.
+See the repository's `expo-modules/README.md` for patch preparation and native build
+inputs. Rebuild those artifacts after changing the native sources or ABI baseline.

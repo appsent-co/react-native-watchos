@@ -13,5 +13,7 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>RNWRuntimeBindingFactory</key>
+    <string>RNWExpoRuntimeBindingFactory</string>
   </dict>
 </plist>

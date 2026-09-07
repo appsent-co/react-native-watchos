@@ -32,11 +32,9 @@ pnpm install --frozen-lockfile
 pnpm test
 pnpm build:xcframework
 pnpm build:expo-modules
-./poc/expo-smoke/run.sh app
-./poc/expo-smoke/run.sh run
-./poc/expo-smoke/run.sh device
-node scripts/test-expo-consumer.cjs all
-node scripts/test-expo-consumer.cjs all --expo-version 57.0.19 --workdir build/test-expo-consumer-57.0.19
+pnpm --dir example exec expo prebuild -p ios --no-install
+(cd example/ios && pod install)
+pnpm verify:package
 ```
 
 `prepare.cjs` copies the pinned npm sources into ignored build directories and
@@ -46,16 +44,13 @@ or source fingerprint inventory is involved. Copyright and license files remain
 with the prepared sources. Published packages include the patched Core sources
 and the built JSI framework, so consumer prebuilds need no patching step.
 
-`versions.json` pins native build inputs. `consumer-compatibility.json` separately
-records the tested app Expo range. To support another Expo patch, test an actual
-packed consumer app before widening that range and the peer dependency.
+`versions.json` pins native build inputs. The package's Expo peer dependency
+records the supported app range. Validate the example before widening it.
 
-The runtime smoke fixture checks functions, promises, events, shared objects,
-reloads, simultaneous hosts, legacy service isolation, permission errors, and
-file/log I/O. Thread tests cover affinity, reentrancy, nested
-run-loop continuations, and concurrent shutdown. The consumer gate builds stock
-iOS Expo alongside the watch integration and runs the watch module fixture.
-Device architectures are compiled; physical-watch execution is separate.
+The [example app](../example/README.md) contains a local Swift Expo module and a
+watch demo. Native CI builds that app with stock iOS Expo and the watch integration,
+including both watch device architectures. Focused unit tests cover the runtime
+thread, autolinking, Metro, config plugin, and patch preparation.
 
 See [the integration guide](../docs/docs/native/expo-modules.md) for the supported
 API, automatic Expo detection, and module authoring requirements.
