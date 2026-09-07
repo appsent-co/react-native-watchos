@@ -53,12 +53,22 @@ fi
 # Hermes is a cross-compiled build: the target compiles for watchOS, but
 # Hermes also needs to invoke `hermesc` at build time to AOT-compile its own
 # InternalBytecode.js. That tool must run on the host (macOS), so we build it
-# in a separate host configuration and import via `IMPORT_HOST_COMPILERS`.
-# (Hermes 0.16 renamed the variable from `IMPORT_HERMESC` to
-# `IMPORT_HOST_COMPILERS`, and the imported target from `hermesc` to
-# `native-hermesc`.)
+# in a separate host configuration and import its generated CMake file.
+# Hermes releases use different names for the compiler import and VM target.
+# Match the checked-out source, which is selected by React Native.
 HERMESC_BUILD_DIR="$BUILD_DIR/host_hermesc"
-HERMESC_IMPORT_FILE="$HERMESC_BUILD_DIR/ImportHostCompilers.cmake"
+if grep -q 'set(IMPORT_HOST_COMPILERS ' "$HERMES_SOURCE_DIR/CMakeLists.txt"; then
+  HERMESC_IMPORT_OPTION="IMPORT_HOST_COMPILERS"
+  HERMESC_IMPORT_FILE="$HERMESC_BUILD_DIR/ImportHostCompilers.cmake"
+else
+  HERMESC_IMPORT_OPTION="IMPORT_HERMESC"
+  HERMESC_IMPORT_FILE="$HERMESC_BUILD_DIR/ImportHermesc.cmake"
+fi
+if grep -q '^add_library(hermesvm ' "$HERMES_SOURCE_DIR/API/hermes/CMakeLists.txt" "$HERMES_SOURCE_DIR/lib/CMakeLists.txt"; then
+  HERMES_VM_TARGET="hermesvm"
+else
+  HERMES_VM_TARGET="libhermes"
+fi
 if [ ! -f "$HERMESC_IMPORT_FILE" ]; then
   echo "Building hermesc for host..."
   mkdir -p "$HERMESC_BUILD_DIR"
@@ -98,17 +108,16 @@ echo "Configuring Hermes for $PLATFORM_NAME..."
   -DHERMES_BUILD_SHARED_JSI:BOOLEAN=false \
   -DCMAKE_CXX_FLAGS:STRING="-gdwarf -fvisibility=hidden" \
   -DCMAKE_C_FLAGS:STRING="-gdwarf -fvisibility=hidden" \
-  -DIMPORT_HOST_COMPILERS:PATH="$HERMESC_IMPORT_FILE" \
+  "-D$HERMESC_IMPORT_OPTION:FILEPATH=$HERMESC_IMPORT_FILE" \
   -DHERMES_RELEASE_VERSION="for React Native watchOS" \
   -DCMAKE_BUILD_TYPE="$cmake_build_type"
 
-# Build Hermes framework. Hermes 0.16+ uses target name `hermesvm` (older
-# versions used `libhermes`). The produced framework is `hermes.framework`.
+# Build Hermes framework using the target provided by this source version.
 echo "Building Hermes framework..."
 
 "$CMAKE_BINARY" \
   --build "$BUILD_DIR/$PLATFORM_NAME" \
-  --target hermesvm \
+  --target "$HERMES_VM_TARGET" \
   -j "$(sysctl -n hw.ncpu)"
 
 # Copy framework to output directory. Resolve the actual location via `find`
