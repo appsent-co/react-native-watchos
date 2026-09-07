@@ -34,9 +34,11 @@ You'll need:
   { "expo": { "jsEngine": "hermes" } }
   ```
 
-The published runtime is tested with this exact dependency matrix. The optional
-[Expo Modules integration](../native/expo-modules) also pins Core 57.0.16 and
-JSI 57.0.8 and requires watchOS 9.4 or later; the base renderer supports watchOS 9.0.
+The published runtime is tested with this exact dependency matrix. The
+[Expo Modules integration](../native/expo-modules) is enabled automatically when
+Expo is installed. It pins Core 57.0.16 and JSI 57.0.8 and requires watchOS 9.4 or
+later. Set `expoModules: false` in the watch config plugin to disable it; the base
+renderer supports watchOS 9.0.
 
 ## Add the package
 

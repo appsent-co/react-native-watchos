@@ -22,15 +22,17 @@ The plugin is registered automatically by `npx react-native-watchos init`
 into your `app.json` _after_ `@bacons/apple-targets`. The plugin name
 in `app.json` is `@appsent-co/react-native-watchos`.
 
-| Option                    | Default     | Purpose                                                                |
-| ------------------------- | ----------- | ---------------------------------------------------------------------- |
-| `targetName`              | `watch`     | Target created by apple-targets.                                       |
-| `bundleName`              | `main`      | Release bundle filename, without extension.                            |
-| `entryFile`               | auto-detect | Watch JavaScript entry relative to the app.                            |
-| `watchosDeploymentTarget` | `9.0`       | CocoaPods deployment floor; Expo modules require `9.4` or later.       |
-| `expoModules`             | `false`     | Enable the non-UI Expo runtime and watch-specific module registration. |
+| Option                    | Default                             | Purpose                                                 |
+| ------------------------- | ----------------------------------- | ------------------------------------------------------- |
+| `targetName`              | `watch`                             | Target created by apple-targets.                        |
+| `bundleName`              | `main`                              | Release bundle filename, without extension.             |
+| `entryFile`               | auto-detect                         | Watch JavaScript entry relative to the app.             |
+| `watchosDeploymentTarget` | `9.4` when enabled, otherwise `9.0` | CocoaPods deployment floor.                             |
+| `expoModules`             | Detect installed `expo`             | Enable the non-UI Expo runtime; set `false` to disable. |
 
-With `expoModules: true`, the default floor becomes `9.4`. See the
+Expo Modules are enabled when `expo` resolves from the app root, including apps
+with no watch-capable Expo modules. This makes the default floor `9.4`; disabling
+the integration with `expoModules: false` keeps the default at `9.0`. See the
 [Expo Modules guide](./native/expo-modules.md) for supported versions and module metadata.
 
 ## Dev-server endpoint

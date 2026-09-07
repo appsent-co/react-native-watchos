@@ -55,10 +55,11 @@ const withWatchExpoModules = require('./withWatchExpoModules');
  * @property {string} [entryFile] - Path (relative to project root) of the
  *   JS entry. Defaults to auto-detecting `index.watchos.{tsx,ts,jsx,js}`
  *   at build time.
- * @property {boolean} [expoModules] - Opt in to non-UI Expo modules with explicit watchOS support.
+ * @property {boolean} [expoModules] - Enable non-UI Expo modules. Defaults to
+ *   detecting Expo from the app root; set false to disable the integration.
  * @property {string} [watchosDeploymentTarget] - Minimum watchOS version
- *   advertised to CocoaPods autolinking. Defaults to `"9.0"`, matching
- *   `WATCHOS_DEPLOYMENT_TARGET` in `scripts/build-xcframework.sh`.
+ *   advertised to CocoaPods autolinking. Defaults to `"9.4"` with Expo
+ *   modules enabled, or `"9.0"` otherwise.
  *
  * @type {import('@expo/config-plugins').ConfigPlugin<ReactNativeWatchOSPluginOpts | void>}
  */
@@ -67,14 +68,10 @@ const withReactNativeWatchOS = (config, opts) => {
   const targetName = (opts && opts.targetName) || 'watch';
   const bundleName = (opts && opts.bundleName) || 'main';
   const entryFile = opts && opts.entryFile;
-  if (
-    opts &&
-    opts.expoModules != null &&
-    typeof opts.expoModules !== 'boolean'
-  ) {
-    throw new Error('expoModules must be true or false.');
-  }
-  const expoModules = opts?.expoModules === true;
+  const expoModules = withWatchExpoModules.resolveEnabled(
+    config._internal?.projectRoot || process.cwd(),
+    opts?.expoModules
+  );
   const watchosDeploymentTarget = withWatchExpoModules.deploymentTarget(
     opts && opts.watchosDeploymentTarget,
     expoModules

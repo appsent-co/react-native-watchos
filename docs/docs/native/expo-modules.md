@@ -11,8 +11,8 @@ maintained source port of Expo Modules Core and Expo Modules JSI. The port
 lives outside `node_modules`, is version- and source-fingerprint-checked, and
 ships as a regular package artifact.
 
-Enable it only for modules whose native implementation supports watchOS. This
-is not a compatibility layer for arbitrary Expo modules.
+The config plugin enables the runtime automatically when Expo is installed.
+Native modules must explicitly support watchOS to be registered.
 
 ## Supported release matrix
 
@@ -44,8 +44,7 @@ Add the watch target plugin after `@bacons/apple-targets`:
       [
         "@appsent-co/react-native-watchos",
         {
-          "targetName": "watch",
-          "expoModules": true
+          "targetName": "watch"
         }
       ]
     ]
@@ -59,17 +58,24 @@ Then regenerate native files:
 npx expo prebuild -p ios
 ```
 
-`expoModules` defaults to `false`. When it is `true`, the plugin raises the
-watch deployment target to 9.4 when necessary, discovers watch-capable Expo
-modules, generates `RNWExpoModulesProvider.swift`, adds that Swift file to the
-watch target, and writes `RNWRuntimeBindingFactory` to the watch target's
+When `expoModules` is omitted, the plugin checks whether `expo/package.json`
+resolves from the app root, including hoisted dependencies. Installed Expo enables
+the integration even when there are no watch-capable modules; the generated
+provider is then empty. Set `expoModules: false` to disable the integration, or
+`true` to require it explicitly. The supported release matrix is checked whenever
+the integration is enabled.
+
+The plugin raises the watch deployment target to 9.4 when necessary, discovers
+watch-capable Expo modules, generates `RNWExpoModulesProvider.swift`, adds that
+Swift file to the watch target, and writes `RNWRuntimeBindingFactory` to the watch target's
 `Info.plist`. The host reads that factory to create a fresh Expo runtime binding
 for every Hermes host and reload.
 
 The generated provider only accepts packages that explicitly declare watchOS
 support. A hand-managed `targets/<watch>/pods.rb` intentionally causes a
-plugin error with `expoModules: true`, because the provider, Podfile, and
-Info.plist factory must agree. Use the manual integration below for that case.
+plugin error while the integration is enabled, because the provider, Podfile,
+and Info.plist factory must agree. Set `expoModules: false` and use the manual
+integration below for that case.
 
 ## Author a watch-capable Expo module
 
@@ -144,9 +150,11 @@ inside `s.ios` where needed.
 
 ## Manual Podfile integration
 
-For a deliberately hand-managed watch `pods.rb`, generate the provider before
-`pod install`, add it as a Swift source in the watch target, and configure the
-factory explicitly:
+For a deliberately hand-managed watch `pods.rb`, set `expoModules: false` in
+the config plugin. After prebuild and before `pod install`, generate the provider,
+add it as a Swift source in the watch target, and configure the factory explicitly.
+Repeat these steps after each prebuild, which removes plugin-managed Expo files
+and the factory setting when the option is disabled:
 
 ```sh
 node node_modules/@appsent-co/react-native-watchos/expo-modules/autolinking.cjs \
@@ -219,8 +227,9 @@ RNW host reloads are supported. Simultaneous-host checks apply to direct Expo
 JSI modules; legacy React Native modules still share process-wide bridge state.
 
 The release workflow also packs the npm artifact, installs it in a fresh Expo
-app, checks plugin enable/disable regeneration, verifies the shipped artifact
-hashes, and builds the app with both stock iOS Expo pods and the watch port.
+app, checks automatic detection with an empty provider and opt-out/regeneration,
+verifies the shipped artifact hashes, and builds the app with both stock iOS
+Expo pods and the watch port.
 Run the same gates locally with:
 
 ```sh

@@ -10,6 +10,7 @@ const {
   configurePlist,
   configureProject,
   deploymentTarget,
+  resolveEnabled,
 } = require('../plugin/src/withWatchExpoModules');
 const { withWatchosMetro } = require('../plugin/src/withWatchosMetro');
 
@@ -56,6 +57,46 @@ function projectFixture() {
 function cleanup(fixture) {
   fs.rmSync(fixture.root, { recursive: true, force: true });
 }
+
+test('Expo detection uses the app dependency graph even without watch modules', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rnw-expo-detection-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const appRoot = path.join(root, 'apps', 'watch-app');
+  fs.mkdirSync(appRoot, { recursive: true });
+  assert.equal(resolveEnabled(appRoot), false);
+  const expoRoot = path.join(root, 'node_modules', 'expo');
+  fs.mkdirSync(expoRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(expoRoot, 'package.json'),
+    JSON.stringify({ name: 'expo', version: '57.0.20' })
+  );
+  assert.equal(resolveEnabled(root), true);
+  assert.equal(resolveEnabled(appRoot), true, 'hoisted Expo is detected');
+  assert.equal(resolveEnabled(appRoot, false), false, 'opt-out takes priority');
+});
+
+test('explicit Expo options override detection and reject invalid values', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rnw-expo-option-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(resolveEnabled(root, true), true);
+  assert.equal(resolveEnabled(root, false), false);
+  assert.equal(resolveEnabled(root, null), false);
+  for (const value of ['true', 'false', 0, 1, {}]) {
+    assert.throws(() => resolveEnabled(root, value), /must be true or false/);
+  }
+});
+
+test('Expo detection propagates a broken package instead of silently disabling it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rnw-expo-broken-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const expoRoot = path.join(root, 'node_modules', 'expo');
+  fs.mkdirSync(expoRoot, { recursive: true });
+  fs.writeFileSync(path.join(expoRoot, 'package.json'), '{ invalid json');
+  assert.throws(() => resolveEnabled(root), {
+    code: 'ERR_INVALID_PACKAGE_CONFIG',
+  });
+  assert.equal(resolveEnabled(root, false), false);
+});
 
 test('deployment target validates before project mutation', () => {
   assert.equal(deploymentTarget(undefined, false), '9.0');

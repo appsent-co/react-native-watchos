@@ -8,6 +8,23 @@ const { versions } = require('../../expo-modules/compatibility.cjs');
 
 const FACTORY = 'RNWExpoRuntimeBindingFactory';
 
+function resolveEnabled(projectRoot, requested) {
+  if (requested != null) {
+    if (typeof requested !== 'boolean')
+      throw new Error('expoModules must be true or false.');
+    return requested;
+  }
+  // Resolve from the app, including hoisted dependencies, rather than this
+  // plugin's own dependency graph. No watch modules are required to enable Core.
+  try {
+    require.resolve('expo/package.json', { paths: [projectRoot] });
+    return true;
+  } catch (error) {
+    if (error.code === 'MODULE_NOT_FOUND') return false;
+    throw error;
+  }
+}
+
 function deploymentTarget(requested, enabled) {
   const value = requested || (enabled ? versions.watchos : '9.0');
   if (typeof value !== 'string' || !/^\d+(?:\.\d+){0,2}$/.test(value)) {
@@ -148,6 +165,7 @@ const withWatchExpoModules = (
   ]);
 
 module.exports = withWatchExpoModules;
+module.exports.resolveEnabled = resolveEnabled;
 module.exports.deploymentTarget = deploymentTarget;
 module.exports.configureProject = configureProject;
 module.exports.configurePlist = configurePlist;

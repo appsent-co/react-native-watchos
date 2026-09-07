@@ -28,7 +28,7 @@ const MARKER =
  * @typedef {object} Opts
  * @property {string} targetName - Watch target name; matches the
  *   `targets/<targetName>/` directory.
- * @property {boolean} [expoModules] - Include the opt-in Expo modules runtime.
+ * @property {boolean} [expoModules] - Include the Expo modules runtime.
  * @property {string} [watchosDeploymentTarget] - Minimum watchOS version.
  *   Defaults to `"9.0"`, matching `WATCHOS_DEPLOYMENT_TARGET` in
  *   `scripts/build-xcframework.sh`.
@@ -96,7 +96,7 @@ const withWatchAutolinking = (
         if (!existing.startsWith(MARKER)) {
           if (expoModules)
             throw new Error(
-              `[RNW Expo modules] ${podsRbPath} is hand-managed. The expoModules plugin option requires a generated pods.rb. Use the documented manual integration for hand-managed Podfiles, or restore the RNW-AUTOLINK marker to let prebuild manage this file.`
+              `[RNW Expo modules] ${podsRbPath} is hand-managed. Automatic Expo modules integration requires a generated pods.rb. Set expoModules: false and use the documented manual integration for hand-managed Podfiles, or restore the RNW-AUTOLINK marker to let prebuild manage this file.`
             );
           return cfg;
         }

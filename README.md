@@ -74,7 +74,7 @@ itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
 **TurboModules** — Create native modules in Swift / Obj-C++ and call
 them from JS with full codegen support.
 
-**Expo Modules** — Opt-in non-UI support on Expo 57 and watchOS 9.4+: the
+**Expo Modules** — Automatic non-UI integration for Expo 57 apps on watchOS 9.4+: the
 Swift Module DSL, synchronous and asynchronous functions, events, and shared
 objects, with registration and runtime setup handled by prebuild. Packages
 must explicitly support watchOS. See [the integration guide](./docs/docs/native/expo-modules.md).

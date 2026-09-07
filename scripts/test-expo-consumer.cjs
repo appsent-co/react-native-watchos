@@ -365,7 +365,7 @@ function prepare(options) {
       outputDir: { ios: 'ios/build/generated/watchos-codegen' },
     },
   });
-  appFiles(consumerRoot, true);
+  appFiles(consumerRoot);
   writeJson(path.join(workdir, 'gate.json'), { tarball, consumerRoot });
 }
 
@@ -460,16 +460,29 @@ function sourceTargets(consumerRoot, sourceBasename) {
     .map((name) => String(name).replace(/^"|"$/g, ''));
 }
 
-function assertEnabledPrebuild(consumerRoot) {
+function assertEnabledPrebuild(consumerRoot, { empty = false } = {}) {
   const provider = providerPath(consumerRoot);
   assertExists(provider, 'generated Expo provider');
   const contents = fs.readFileSync(provider, 'utf8');
-  assertIncludes(contents, 'import RNWFixtureExpoModule', 'generated provider');
-  assertIncludes(
-    contents,
-    'RNWFixtureExpoModule.FixtureExpoModule.self',
-    'generated provider'
-  );
+  if (empty) {
+    assertIncludes(contents, 'return []', 'empty generated provider');
+    assertNotIncludes(
+      contents,
+      'RNWFixtureExpoModule',
+      'empty generated provider'
+    );
+  } else {
+    assertIncludes(
+      contents,
+      'import RNWFixtureExpoModule',
+      'generated provider'
+    );
+    assertIncludes(
+      contents,
+      'RNWFixtureExpoModule.FixtureExpoModule.self',
+      'generated provider'
+    );
+  }
   const targets = sourceTargets(consumerRoot, 'RNWExpoModulesProvider.swift');
   if (targets.length !== 1 || targets[0] !== 'watch') {
     fail(
@@ -512,15 +525,27 @@ function assertDisabledPrebuild(consumerRoot) {
 function prebuild(options) {
   assertTools();
   const { consumerRoot } = gateState(options);
-  // A previous interrupted toggle can leave app.json disabled. Each phase is
-  // independently repeatable, so always begin from the enabled release state.
-  writeAppConfig(consumerRoot, true);
-  expo(consumerRoot, ['prebuild', '--platform', 'ios', '--no-install']);
-  assertEnabledPrebuild(consumerRoot);
+  // Detect Expo with no watch modules first, then exercise explicit opt-out
+  // and restore automatic registration. No expoModules: true is needed.
+  writeAppConfig(consumerRoot);
+  const manifestFile = path.join(consumerRoot, 'package.json');
+  const manifest = readJson(manifestFile);
+  try {
+    writeJson(manifestFile, {
+      ...manifest,
+      expo: {
+        autolinking: { watchos: { exclude: ['@rnw-test/expo-module'] } },
+      },
+    });
+    expo(consumerRoot, ['prebuild', '--platform', 'ios', '--no-install']);
+    assertEnabledPrebuild(consumerRoot, { empty: true });
+  } finally {
+    writeJson(manifestFile, manifest);
+  }
   writeAppConfig(consumerRoot, false);
   expo(consumerRoot, ['prebuild', '--platform', 'ios', '--no-install']);
   assertDisabledPrebuild(consumerRoot);
-  writeAppConfig(consumerRoot, true);
+  writeAppConfig(consumerRoot);
   expo(consumerRoot, ['prebuild', '--platform', 'ios', '--no-install']);
   assertEnabledPrebuild(consumerRoot);
 }
