@@ -1075,31 +1075,28 @@ function buildChecks(): Array<[string, Check]> {
       'sdk-rnwebsocketdriver',
       async () => {
         // The default driver on the watch entry: RNWebSocketDriver.connect
-        // with the exact header StreamTask.runOnce sends, then the first
-        // frame through DomWsConn.recv(). The frame is the server's view of
-        // the upgrade request, so a dropped header cannot pass.
+        // with the exact header StreamTask.runOnce sends, then one frame
+        // through DomWsConn.send / recv. Header forwarding itself is covered
+        // by `headers-forwarded`.
         const token = 'eyJhbGciOiJIUzI1NiJ9.e30.sig';
         const conn = await withTimeout(
-          new RNWebSocketDriver().connect(wsUrl('/headers'), {
+          new RNWebSocketDriver().connect(wsUrl('/echo'), {
             Authorization: `Bearer ${token}`,
           }),
           8000,
           'RNWebSocketDriver.connect'
         );
         const it = conn.recv();
+        const payload = new Uint8Array([1, 5, 0, 0, 0, 42]);
+        await conn.send(payload);
         const first = await withTimeout(it.next(), 8000, 'recv()');
-        if (first.done)
-          throw new Error('recv() ended before the headers frame');
-        const seen = decodeHeadersFrame(
-          first.value.buffer.slice(
-            first.value.byteOffset,
-            first.value.byteOffset + first.value.byteLength
-          )
-        );
+        if (first.done || !bytesEqual(payload, first.value)) {
+          throw new Error(
+            `recv gave done=${first.done} ${first.value && hex(first.value)}`
+          );
+        }
         await conn.close(1000, '');
-        const detail = `authorization=${JSON.stringify(seen.authorization)} (frame via DomWsConn.recv)`;
-        if (seen.authorization !== `Bearer ${token}`) throw new Error(detail);
-        return detail;
+        return `${payload.length} B frame via RNWebSocketDriver + DomWsConn.recv`;
       },
     ],
     [

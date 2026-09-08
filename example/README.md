@@ -412,7 +412,7 @@ navigating.
 devDependency). Paths: `/echo` (text + binary echo, selects the **first**
 offered subprotocol, the relay's rule), `/noproto` (selects none),
 `/headers` (selects the first offer, then sends the upgrade request's
-headers back as one binary JSON frame — what the server actually saw),
+headers back as one JSON text frame — what the server actually saw),
 `/close1013` and `/close?code=&reason=&delay=` (server-initiated closes),
 `/drop` (TCP destroyed with no close frame → unclean 1006), `/reject` (401 on
 the upgrade). Over plain HTTP it serves `GET /` (the ArrayBuffer check) and

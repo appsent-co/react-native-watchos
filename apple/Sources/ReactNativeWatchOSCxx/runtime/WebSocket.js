@@ -269,7 +269,10 @@
     }
   );
 
-  for (const type of ['open', 'message', 'error', 'close']) {
+  // A callback per type, not a `for (const type of …)` loop: this file is
+  // evaluated from source by Hermes, whose block scoping is off by default,
+  // so loop closures would all see the last `type`.
+  ['open', 'message', 'error', 'close'].forEach(function (type) {
     accessor(
       'on' + type,
       function () {
@@ -294,7 +297,7 @@
         }
       }
     );
-  }
+  });
 
   proto.addEventListener = function (type, listener, options) {
     if (listener === null || listener === undefined) return;
