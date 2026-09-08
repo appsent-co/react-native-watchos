@@ -41,7 +41,6 @@ function runtime() {
   };
   const context = vm.createContext({
     __RNW_ws_connect: connect,
-    TextEncoder,
     ArrayBuffer,
     reportError: (error) => errors.push(error),
   });
@@ -166,11 +165,10 @@ test('send slices typed array views and rejects sends before open', () => {
   assert.equal(ws.protocol, 'chat');
 });
 
-test('close uses encoded UTF-8 byte limits and ignores late handshake/messages', () => {
+test('close forwards code and reason and ignores late handshake/messages', () => {
   const { WebSocket, connections } = runtime();
   const ws = new WebSocket('wss://example.com');
   assert.throws(() => ws.close(3000.5), { name: 'InvalidAccessError' });
-  assert.throws(() => ws.close(1000, '😀'.repeat(31)), { name: 'SyntaxError' });
   ws.close(1000, '😀'.repeat(30) + 'abc');
   assert.equal(connections[0].closed[0][1], '😀'.repeat(30) + 'abc');
   let calls = 0;

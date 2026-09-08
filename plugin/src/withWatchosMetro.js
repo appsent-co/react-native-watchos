@@ -18,6 +18,9 @@ const REACT_NATIVE_SHIM = path.resolve(
   'src',
   'reactNativeShim.ts'
 );
+const SUPPORT_PACKAGE_PATCHED = Symbol.for(
+  '@appsent-co/react-native-watchos:supportPackagePatched'
+);
 
 /**
  * Extend a Metro config so that Metro recognises `watchos` as a platform
@@ -42,11 +45,13 @@ const REACT_NATIVE_SHIM = path.resolve(
  * The function mutates and returns the same config object. It is safe to
  * call more than once — `watchos` is only added if it isn't already there.
  *
- * @template {{ resolver?: any, server?: any }} TConfig
+ * @template {{ projectRoot?: string, resolver?: any, server?: any }} TConfig
  * @param {TConfig} config A Metro config (typically from `getDefaultConfig`).
  * @returns {TConfig} The same config, with `watchos` wired in.
  */
 function withWatchosMetro(config) {
+  patchAutolinkingSupportPackage(config.projectRoot || process.cwd());
+
   const resolver = config.resolver || (config.resolver = {});
 
   const platforms = Array.isArray(resolver.platforms)
@@ -113,6 +118,46 @@ function withWatchosMetro(config) {
   };
 
   return config;
+}
+
+/**
+ * Expo CLI 57.0.1+ asks expo-modules-autolinking which package hosts
+ * React Native for a platform after every resolution on non-web
+ * platforms (to redirect `react-native` on tvOS / macOS forks). The
+ * helper throws for platforms it doesn't know, and `watchos` isn't one
+ * of them. Wrap Expo's own instance so it answers `null` for watchos,
+ * the same as `web`. Expo re-exports the helper through live getters,
+ * so replacing it on the source module is enough.
+ *
+ * @param {string} projectRoot Directory to resolve `expo` from.
+ */
+function patchAutolinkingSupportPackage(projectRoot) {
+  let platforms;
+  try {
+    const expoExports = require.resolve(
+      'expo/internal/unstable-autolinking-exports',
+      { paths: [projectRoot] }
+    );
+    const autolinkingDir = path.dirname(
+      require.resolve('expo-modules-autolinking/package.json', {
+        paths: [path.dirname(expoExports)],
+      })
+    );
+    platforms = require(path.join(autolinkingDir, 'build', 'platforms'));
+  } catch {
+    // Older Expo without the helper, or no Expo at all — nothing to do.
+    return;
+  }
+
+  const original = platforms.getSupportPackageForPlatform;
+  if (typeof original !== 'function' || original[SUPPORT_PACKAGE_PATCHED]) {
+    return;
+  }
+  /** @param {string} platform */
+  const patched = (platform) =>
+    platform === WATCHOS_PLATFORM ? null : original(platform);
+  patched[SUPPORT_PACKAGE_PATCHED] = true;
+  platforms.getSupportPackageForPlatform = patched;
 }
 
 /**

@@ -349,7 +349,6 @@ target_include_directories(react_featureflags PUBLIC
 set(TM_CORE_DIR "${RN_COMMON_DIR}/react/nativemodule/core/ReactCommon")
 add_library(react_nativemodule_core STATIC
     "${TM_CORE_DIR}/CxxTurboModuleUtils.cpp"
-    "${TM_CORE_DIR}/TurboCxxModule.cpp"
     "${TM_CORE_DIR}/TurboModule.cpp"
     "${TM_CORE_DIR}/TurboModuleBinding.cpp"
     "${TM_CORE_DIR}/TurboModulePerfLogger.cpp"

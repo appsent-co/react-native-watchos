@@ -5,9 +5,7 @@
 #import <React/RCTBridge+Private.h>
 #import <ReactCommon/RCTTurboModule.h>
 #import "RNWCallInvoker.h"
-#import "RNWCrypto.h"
 #import "RNWNativeModules.h"
-#import "RNWTextDecoder.h"
 #import "RNWUIManager.h"
 #import "RNWWebSocket.h"
 #import "RNWXHR.h"
@@ -112,8 +110,6 @@ private:
             [self installReload];
             rnwInstallWebSocket(*_runtime, _jsQueueRef);
             rnwInstallXHR(*_runtime, _jsQueueRef);
-            rnwInstallCrypto(*_runtime);
-            rnwInstallTextDecoder(*_runtime);
             [self installTurboModules];
             [self installNativeModules];
         });

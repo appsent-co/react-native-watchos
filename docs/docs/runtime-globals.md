@@ -21,10 +21,7 @@ which adds the rest as a side effect of importing
 | `setImmediate` / `clearImmediate` | `polyfills` | A macrotask over `setTimeout(fn, 0)` — never a microtask, see [Scheduling](#scheduling). |
 | `queueMicrotask` | `polyfills` | Over a resolved promise. |
 | `Symbol.asyncIterator` | `polyfills` | The registered symbol `Symbol.for('Symbol.asyncIterator')` — absent from this Hermes build, and without it every `for await` throws. |
-| `crypto.getRandomValues` / `crypto.randomUUID` | host ([`RNWCrypto.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWCrypto.mm)) + `polyfills` | `SecRandomCopyBytes` — see below. No `crypto.subtle`. |
 | `atob` / `btoa` | Hermes | Built in, spec-shaped (invalid input throws). |
-| `TextEncoder` | Hermes | Built in: `encode`, `encodeInto`, `encoding`. |
-| `TextDecoder` | host ([`RNWTextDecoder.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWTextDecoder.mm)) | UTF-8 only — see below. |
 | `BigInt`, `DataView#getBigInt64` / `setBigInt64` | Hermes | Built in. |
 | `XMLHttpRequest` | host ([`RNWXHR.mm`](https://github.com/appsent-co/react-native-watchos/blob/main/apple/Sources/ReactNativeWatchOSCxx/RNWXHR.mm)) | `responseType` `''` / `text` / `json` / `arraybuffer`; `blob` reads back `null`. |
 | `fetch`, `Headers`, `Request`, `Response` | `polyfills` (`whatwg-fetch`) | Over `XMLHttpRequest`. |
@@ -32,9 +29,9 @@ which adds the rest as a side effect of importing
 | `ErrorUtils`, `reportError` | `polyfills` | Route uncaught errors to `console.error`. |
 | `__RNW_DEV_SERVER` | Swift host (DEBUG) | `{ host, port, entry, scheme }` of the Metro that served the bundle. |
 
-Not installed: `URL`, `URLSearchParams`, `AbortController`,
-`structuredClone`, `Blob`, `FormData`, `Event` / `EventTarget`,
-`performance`, `Buffer`, `global`, and `Intl` (Hermes is built without it
+Not installed: `crypto`, `TextDecoder`, `URL`, `URLSearchParams`,
+`AbortController`, `structuredClone`, `Blob`, `FormData`, `Event` /
+`EventTarget`, `performance`, `Buffer`, `global`, and `Intl` (Hermes is built without it
 on watchOS, so no `toLocale*`).
 
 The example app's runtime probe
@@ -48,7 +45,7 @@ Host-installed globals exist before the first line of the bundle runs.
 The `polyfills` set is installed by the first import of
 `@appsent-co/react-native-watchos/renderer` or `/dev-support`, which is
 normally the first line of `index.watchos.tsx`. A watch entry that
-imports something else first — a library that reads `crypto` or
+imports something else first — a library that reads
 `Symbol.asyncIterator` at module scope — should import the polyfills
 explicitly before it:
 
@@ -58,49 +55,6 @@ import '@appsent-co/react-native-watchos/polyfills';
 
 The import is idempotent and feature-detects every global, so it is a
 no-op where the real thing already exists (the phone, say).
-
-## `crypto`
-
-`crypto.getRandomValues(view)` fills an integer typed array
-(`Int8Array` … `Uint32Array`, `Uint8ClampedArray`, `BigInt64Array`,
-`BigUint64Array`) in place from `SecRandomCopyBytes` and returns the same
-object. As in Web Crypto, a `Float32Array` / `Float64Array` / `DataView`
-throws a `TypeMismatchError` and more than 65536 bytes a
-`QuotaExceededError` — plain `Error`s with `name` set, since Hermes has no
-`DOMException`. `crypto.randomUUID()` returns a v4 UUID string.
-
-There is no `crypto.subtle`; pure-JS implementations such as `@noble/*`
-run on top of `getRandomValues` alone.
-
-## `TextDecoder`
-
-A WHATWG `TextDecoder` for UTF-8 — the counterpart of the native
-`TextEncoder` Hermes ships. It exists before the bundle evaluates, so a
-library that does `new TextDecoder('utf-8', { fatal: true })` at module
-scope works without any import.
-
-- **Labels** — every label the Encoding Standard maps to UTF-8 (`utf-8`,
-  `utf8`, `unicode-1-1-utf-8`, …), trimmed and case-folded; anything else
-  is a `RangeError`. `encoding` always reads `'utf-8'`.
-- **`fatal`** — `true` throws a `TypeError` on the first malformed
-  sequence; `false` (the default) replaces each maximal invalid subpart
-  with U+FFFD exactly as the standard's decoder does (overlong forms,
-  encoded surrogates, code points above U+10FFFF and truncated sequences
-  are all invalid).
-- **`ignoreBOM`** — a leading `EF BB BF` is stripped once per stream
-  unless set.
-- **`decode(input?, { stream })`** — `input` is an `ArrayBuffer`, any
-  `ArrayBufferView` (its `byteOffset` / `byteLength` window) or absent
-  (`''`). With `{ stream: true }` an incomplete trailing sequence is held
-  for the next call instead of being reported.
-
-The native decoder delegates conversion and malformed-input handling to
-ICU's `u_strFromUTF8WithSub`, linked from the system `libicucore`. Its UTF-16
-output passes directly to JSI. A small wrapper retains incomplete tails
-(identified by ICU) between streaming calls and handles the leading BOM.
-The small class adapter in `runtime/TextDecoder.js` exposes its properties
-and methods. Both runtime adapters are embedded from their JavaScript source
-during the native build and installed before the application bundle runs.
 
 ## Scheduling
 
@@ -150,8 +104,8 @@ browser-targeted libraries. Runtime limitations are listed below:
   `InvalidStateError` while `CONNECTING`; silently dropped once `CLOSING` or
   `CLOSED`. Strings go out as text frames, buffers as binary frames.
 - **`close(code?, reason?)`** — `code` must be `1000` or `3000`–`4999`
-  (`InvalidAccessError` otherwise), `reason` at most 123 UTF-8 bytes
-  (`SyntaxError`). With no code, `1000` is sent.
+  (`InvalidAccessError` otherwise); `reason` is forwarded as given, as in
+  React Native. With no code, `1000` is sent.
 - **`addEventListener(type, listener, { once })`**,
   **`removeEventListener(type, listener)`**, **`dispatchEvent(event)`**, and
   the `onopen` / `onmessage` / `onerror` / `onclose` handlers. The `on*`
@@ -224,4 +178,4 @@ is an on-device integration probe; run it against
 `example/scripts/ws-echo-server.js` after changing the transport. Its copied
 SDK helpers exercise usage patterns, but do not prove compatibility with the
 current SDK packages. `pnpm test` runs the authored adapter with a mocked JSI
-transport, native UTF-8/range regressions and embedding checks.
+transport, native buffer-range regressions and embedding checks.

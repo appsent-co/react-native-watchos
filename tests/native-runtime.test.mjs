@@ -9,7 +9,7 @@ import test from 'node:test';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const sources = join(root, 'apple/Sources/ReactNativeWatchOSCxx');
 
-test('native UTF-8 streaming and buffer range regressions', () => {
+test('native buffer range regressions', () => {
   const directory = mkdtempSync(join(tmpdir(), 'rnw-native-tests-'));
   try {
     const binary = join(directory, 'native-runtime');
@@ -20,7 +20,6 @@ test('native UTF-8 streaming and buffer range regressions', () => {
       '-Werror',
       `-I${sources}`,
       join(root, 'tests/native-runtime.test.cpp'),
-      process.platform === 'darwin' ? '-licucore' : '-licuuc',
       '-o',
       binary,
     ]);
@@ -33,7 +32,7 @@ test('native UTF-8 streaming and buffer range regressions', () => {
 test('build-time embedding preserves the authored runtime scripts', () => {
   const directory = mkdtempSync(join(tmpdir(), 'rnw-embed-tests-'));
   try {
-    for (const name of ['WebSocket', 'TextDecoder']) {
+    for (const name of ['WebSocket']) {
       const input = join(sources, 'runtime', `${name}.js`);
       const output = join(directory, `${name}.h`);
       execFileSync('cmake', [

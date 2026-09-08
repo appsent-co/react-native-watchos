@@ -11,11 +11,10 @@
 //                subprotocol — the relay's rule, so offering
 //                ['fireflydb', 'bearer.<jwt>'] must come back as 'fireflydb'
 //   /noproto     accepts without selecting a subprotocol
-//   /headers     selects the first offered subprotocol, then sends ONE binary
+//   /headers     selects the first offered subprotocol, then sends ONE text
 //                frame: the JSON of the upgrade request's headers — proves
 //                what `new WebSocket(url, protocols, { headers })` put on the
-//                wire (the way `@fireflydb/core`'s RNWebSocketDriver carries
-//                the bearer token). Binary so DomWsConn.recv() yields it too.
+//                wire.
 //   /close1013   closes with 1013 + reason (WS_CLOSE_TRY_AGAIN_LATER, the
 //                relay's back-off signal → WsCloseError in the SDK)
 //   /close       closes with ?code=&reason=&delay= — the parameterised form,
@@ -105,7 +104,7 @@ headersWss.on('connection', (ws, req) => {
   log(
     `open   ${req.url} protocol=${JSON.stringify(ws.protocol)} authorization=${JSON.stringify(req.headers.authorization ?? null)}`
   );
-  ws.send(Buffer.from(JSON.stringify(req.headers), 'utf8'), { binary: true });
+  ws.send(JSON.stringify(req.headers));
 });
 
 closeWss.on('connection', (ws, req) => {

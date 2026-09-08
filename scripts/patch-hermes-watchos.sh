@@ -39,7 +39,7 @@ fi
 # fail to resolve. Force OUTPUT_NAME=hermes so the produced framework is
 # named `hermes.framework` regardless of the CMake target name.
 API_HERMES_CMAKE="$HERMES_SOURCE_DIR/API/hermes/CMakeLists.txt"
-if [ -f "$API_HERMES_CMAKE" ] && ! grep -q "OUTPUT_NAME hermes" "$API_HERMES_CMAKE"; then
+if [ -f "$API_HERMES_CMAKE" ] && ! grep -q "set_target_properties(hermesvm PROPERTIES OUTPUT_NAME hermes)" "$API_HERMES_CMAKE"; then
   echo "Patching $API_HERMES_CMAKE..."
   sed -i.bak '/^add_library(hermesvm /a\
 set_target_properties(hermesvm PROPERTIES OUTPUT_NAME hermes)
