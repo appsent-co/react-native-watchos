@@ -129,7 +129,6 @@
         .jsInvoker = std::move(jsInvoker),
         .nativeMethodCallInvoker = std::move(nativeInvoker),
         .isSyncModule = false,
-        .shouldVoidMethodsExecuteSync = false,
     };
     auto module = [(id<RCTModuleProvider>)instance getTurboModule:params];
     if (module) {

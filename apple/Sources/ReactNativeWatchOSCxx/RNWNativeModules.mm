@@ -100,7 +100,6 @@ class InteropRegistry {
             .jsInvoker = jsInvoker,
             .nativeMethodCallInvoker = nativeInvoker,
             .isSyncModule = false,
-            .shouldVoidMethodsExecuteSync = false,
         };
         entry.turboModule = std::make_shared<InteropObjCTurboModule>(params);
         entry.methods = buildMethodMap([instance class]);
