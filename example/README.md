@@ -73,7 +73,7 @@ You should see Metro's wrapper plus the `console.*` calls from
 The Watch target needs to know about `apple/Package.swift`. This has to be
 done once via the Xcode UI — the pbxproj edits aren't worth hand-crafting.
 
-1. Open `ios/WatchosExample.xcworkspace` in Xcode.
+1. Open `ios/watchosexample.xcworkspace` in Xcode.
 2. `File` → `Add Package Dependencies…` → `Add Local…`.
 3. Navigate to the `apple/` directory (which contains `Package.swift`),
    click **Add Package**.
@@ -255,14 +255,10 @@ Caveats that cost time the first time round:
   `driverEntry=`. Metro resolves it to the driver's `src/index.watchos.ts`
   (the served bundle contains `index.watchos.ts` and neither `src/index.ts`
   nor `src/polyfill.ts`), and that entry pulls in `@fireflydb/core`, which
-  constructs `TextDecoder`s at module scope. Before Stage 2 the runtime had
-  no `TextDecoder`, so evaluation failed with `Property 'TextDecoder'
-  doesn't exist` and the canary fell back to the TurboModule spec
-  (`src/NativeFireflyClient`) for `getLibraryPath`/`getEntryPoint`. The
-  runtime now installs it (see the runtime probe below) and the line reads
-  `driverEntry=ok (index.watchos.ts)` — the `.watchos.ts` entry is
-  identified by its `crypto.getRandomValues` guard, which the demo makes
-  observable by hiding the global for the duration of one call.
+  constructs `TextDecoder`s at module scope. The runtime has no
+  `TextDecoder`, so evaluation fails with `Property 'TextDecoder'
+  doesn't exist` and the canary falls back to the TurboModule spec
+  (`src/NativeFireflyClient`) for `getLibraryPath`/`getEntryPoint`.
 - **`getLibraryPath` / `getEntryPoint` are not yet a published driver
   API.** `@fireflydb/op-sqlite-driver@1.0.18` (fireflydb `develop`
   `c01c37b`, the exact release) only exposes them through the TurboModule
@@ -300,15 +296,12 @@ automatically with `npx react-native-watchos init` + `expo prebuild`:
    patch with `patch-package` (yarn has no `patchedDependencies`), or keep
    deep-importing `@fireflydb/op-sqlite-driver/src/NativeFireflyClient`
    for `getLibraryPath` / `getEntryPoint`.
-4. **`@appsent-co/react-native-watchos` at a version whose runtime carries
-   the Stage 2 globals** (`crypto.getRandomValues`, `TextDecoder`,
-   `Symbol.asyncIterator`, `queueMicrotask`, the rewritten `WebSocket`) —
-   the runtime APIs `@fireflydb/core` needs, listed
+4. **Runtime globals.** The globals the watch runtime provides are listed
    in [`docs/docs/runtime-globals.md`](../docs/docs/runtime-globals.md) and
-   asserted by the runtime probe below. `@fireflydb/core` constructs its
-   `TextDecoder`s at module scope, so a watch entry that imports the SDK
-   before `/renderer` or `/dev-support` should import
-   `@appsent-co/react-native-watchos/polyfills` first.
+   asserted by the runtime probe below. `crypto.getRandomValues` and
+   `TextDecoder` are not among them; `@fireflydb/core` constructs its
+   `TextDecoder`s at module scope, so the SDK does not evaluate on the
+   watch without a polyfill supplied by the app.
 5. **`@appsent-co/react-native-watchos` at a version whose config plugin
    writes the Info.plist keys** (`RNWDevServerHost` / `RNWDevServerPort`,
    `NSAllowsLocalNetworking`). Older versions leave the scaffolded watch
@@ -502,16 +495,9 @@ launch like every gallery demo and prints one line per check:
 [RuntimeProbe] DONE pass=<n> fail=<m>
 ```
 
-Groups: `crypto` (`getRandomValues` fills in place and returns the same
-object, honours `byteOffset`, fills `Uint32Array` / `BigInt64Array`, the
-65536-byte quota and the `TypeMismatchError` / `QuotaExceededError` names,
-entropy across draws, v4 `randomUUID`); base64 (`atob` / `btoa` over the
+Groups: base64 (`atob` / `btoa` over the
 SDK's 0x8000-chunk fallback at 32773 bytes, invalid input, the 43-char
-base64url peer id, which `base64.ts` branch is live); text (`TextEncoder`
-bytes, `TextDecoder` constructed with `{fatal: true}` as the SDK does at
-module scope, astral round trip, five invalid sequences under `fatal`,
-WHATWG maximal-subpart replacement under lossy, BOM, every input type,
-label normalisation, `{stream: true}`); binary / numeric (`DataView`
+base64url peer id, which `base64.ts` branch is live); binary / numeric (`DataView`
 BigInt64 round trip, BigInt exactness above 2^53); scheduling (timers,
 `queueMicrotask` ordering, `setImmediate` staying a macrotask,
 `Symbol.asyncIterator`, `for await` over the SDK's `WsRecvQueue` shape,
@@ -557,9 +543,7 @@ refuses to install on a second runtime in the same process (the plan's
 dev-only gap G12), so the demos do not remount after a reload — relaunch
 the app when touching DB code.
 
-Touching `RNWCrypto.mm`, `RNWTextDecoder.mm` or `RNWHermesHost.mm` means
-rebuilding the prebuilt `ReactNativeWatchOSCxx.xcframework` (see the
-WebSocket section). Run the probe on a paired physical watch as well to
-verify device behavior, including the `grv-entropy` check for
-`SecRandomCopyBytes`.
+Touching `RNWHermesHost.mm` means rebuilding the prebuilt
+`ReactNativeWatchOSCxx.xcframework` (see the WebSocket section). Run the
+probe on a paired physical watch as well to verify device behavior.
 

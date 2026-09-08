@@ -28,24 +28,6 @@ import {
 // report a clean FAIL) when one of them is missing from the runtime.
 // ---------------------------------------------------------------------------
 
-interface DecoderLike {
-  encoding: string;
-  fatal: boolean;
-  ignoreBOM: boolean;
-  decode(input?: unknown, options?: { stream?: boolean }): string;
-}
-
-interface EncoderLike {
-  encoding: string;
-  encode(input?: string): Uint8Array;
-  encodeInto?: unknown;
-}
-
-interface CryptoLike {
-  getRandomValues?: <T extends ArrayBufferView>(view: T) => T;
-  randomUUID?: () => string;
-}
-
 interface HermesInternalLike {
   enablePromiseRejectionTracker?: unknown;
 }
@@ -56,14 +38,8 @@ interface ErrorUtilsLike {
 }
 
 const G = globalThis as unknown as {
-  crypto?: CryptoLike;
   atob?: (s: string) => string;
   btoa?: (s: string) => string;
-  TextEncoder?: new () => EncoderLike;
-  TextDecoder?: new (
-    label?: string,
-    options?: { fatal?: boolean; ignoreBOM?: boolean }
-  ) => DecoderLike;
   queueMicrotask?: (cb: () => void) => void;
   setImmediate?: (cb: () => void) => unknown;
   setTimeout: (cb: () => void, ms: number) => number;
@@ -112,7 +88,8 @@ function sleep(ms: number): Promise<void> {
 
 function hex(u8: Uint8Array): string {
   let out = '';
-  for (let i = 0; i < u8.length; i++) out += u8[i]!.toString(16).padStart(2, '0');
+  for (let i = 0; i < u8.length; i++)
+    out += u8[i]!.toString(16).padStart(2, '0');
   return out;
 }
 
@@ -126,22 +103,27 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-function requireDecoder(): NonNullable<typeof G.TextDecoder> {
-  assert(typeof G.TextDecoder === 'function', 'TextDecoder is missing');
-  return G.TextDecoder;
-}
-
-function requireEncoder(): NonNullable<typeof G.TextEncoder> {
-  assert(typeof G.TextEncoder === 'function', 'TextEncoder is missing');
-  return G.TextEncoder;
-}
-
-function requireGrv(): NonNullable<CryptoLike['getRandomValues']> {
-  assert(
-    typeof G.crypto?.getRandomValues === 'function',
-    'crypto.getRandomValues is missing'
-  );
-  return G.crypto.getRandomValues;
+function utf8Encode(text: string): Uint8Array {
+  const out: number[] = [];
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (cp < 0x80) out.push(cp);
+    else if (cp < 0x800) out.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    else if (cp < 0x10000)
+      out.push(
+        0xe0 | (cp >> 12),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f)
+      );
+    else
+      out.push(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f)
+      );
+  }
+  return Uint8Array.from(out);
 }
 
 /// Same shape as `@fireflydb/core` src/base64.ts `bytesToBase64Fallback` —
@@ -251,12 +233,19 @@ const PROBE_MIGRATION_SQL =
 function buildSignedEnvelope(
   core: CoreEntry,
   developerSeed: Uint8Array,
-  env: { seq: number; filename: string; prevHash: Uint8Array; migrationTs: number; sql: string }
+  env: {
+    seq: number;
+    filename: string;
+    prevHash: Uint8Array;
+    migrationTs: number;
+    sql: string;
+  }
 ): Uint8Array {
-  const encoder = new (requireEncoder())();
-  const filename = encoder.encode(env.filename);
-  const sql = encoder.encode(env.sql);
-  const header = new Uint8Array(4 + 1 + 8 + 4 + filename.length + 32 + 8 + 4 + sql.length);
+  const filename = utf8Encode(env.filename);
+  const sql = utf8Encode(env.sql);
+  const header = new Uint8Array(
+    4 + 1 + 8 + 4 + filename.length + 32 + 8 + 4 + sql.length
+  );
   const view = new DataView(header.buffer);
   header.set([0x46, 0x4d, 0x49, 0x47], 0); // "FMIG"
   header[4] = 1;
@@ -282,10 +271,17 @@ function buildSignedEnvelope(
 }
 
 interface ProbeDb {
-  execute(sql: string, params?: unknown[]): Promise<{ rows?: Record<string, unknown>[] }>;
+  execute(
+    sql: string,
+    params?: unknown[]
+  ): Promise<{ rows?: Record<string, unknown>[] }>;
 }
 
-async function scalar<T>(db: ProbeDb, sql: string, column: string): Promise<T | undefined> {
+async function scalar<T>(
+  db: ProbeDb,
+  sql: string,
+  column: string
+): Promise<T | undefined> {
   const rows = (await db.execute(sql)).rows ?? [];
   return rows[0]?.[column] as T | undefined;
 }
@@ -297,120 +293,6 @@ async function scalar<T>(db: ProbeDb, sql: string, column: string): Promise<T | 
 type Check = () => Promise<string> | string;
 
 const CHECKS: readonly [string, Check][] = [
-  // -- crypto ---------------------------------------------------------------
-
-  [
-    'crypto-present',
-    () => {
-      assert(
-        typeof G.crypto?.getRandomValues === 'function',
-        'crypto.getRandomValues missing'
-      );
-      assert(typeof G.crypto.randomUUID === 'function', 'crypto.randomUUID missing');
-      return `getRandomValues+randomUUID, subtle=${typeof (G.crypto as { subtle?: unknown }).subtle}`;
-    },
-  ],
-  [
-    'grv-fills',
-    () => {
-      // core/src/state/sync.ts defaultRandomBytes + @noble/ed25519 randomBytes:
-      // a plain Uint8Array, and the RETURN value is what gets used.
-      const grv = requireGrv();
-      const a = new Uint8Array(32);
-      const r = grv(a);
-      assert(r === a, 'did not return the same object');
-      assert(a.some((b) => b !== 0), 'buffer left zeroed');
-      return `same object, ${hex(a).slice(0, 16)}…`;
-    },
-  ],
-  [
-    'grv-offset',
-    () => {
-      const grv = requireGrv();
-      const buf = new ArrayBuffer(32);
-      const head = new Uint8Array(buf, 0, 16);
-      const tail = new Uint8Array(buf, 16, 16);
-      grv(tail);
-      assert(head.every((b) => b === 0), 'adjacent view was overwritten');
-      assert(tail.some((b) => b !== 0), 'offset view left zeroed');
-      return 'byteOffset honoured, adjacent view untouched';
-    },
-  ],
-  [
-    'grv-typed',
-    () => {
-      const grv = requireGrv();
-      const u32 = grv(new Uint32Array(8));
-      assert(u32.some((v) => v !== 0), 'Uint32Array left zeroed');
-      const i64 = grv(new BigInt64Array(4));
-      assert(i64.some((v) => v !== 0n), 'BigInt64Array left zeroed');
-      return `Uint32Array(8) + BigInt64Array(4) filled`;
-    },
-  ],
-  [
-    'grv-quota-ok',
-    () => {
-      const a = requireGrv()(new Uint8Array(65536));
-      assert(a.some((b) => b !== 0), 'left zeroed');
-      return '65536 bytes accepted';
-    },
-  ],
-  [
-    'grv-quota-exceeded',
-    () => {
-      const e = expectThrow(() => requireGrv()(new Uint8Array(65537)), '65537 bytes');
-      assert(errorName(e) === 'QuotaExceededError', `name=${errorName(e)}`);
-      return `65537 bytes → ${errorName(e)}`;
-    },
-  ],
-  [
-    'grv-type-mismatch',
-    () => {
-      const grv = requireGrv();
-      const f = expectThrow(() => grv(new Float64Array(4)), 'Float64Array');
-      assert(errorName(f) === 'TypeMismatchError', `Float64Array name=${errorName(f)}`);
-      const d = expectThrow(
-        () => grv(new DataView(new ArrayBuffer(8)) as unknown as Uint8Array),
-        'DataView'
-      );
-      assert(errorName(d) === 'TypeMismatchError', `DataView name=${errorName(d)}`);
-      return 'Float64Array + DataView → TypeMismatchError';
-    },
-  ],
-  [
-    'grv-entropy',
-    () => {
-      // A stubbed or zeroing native fill reproduces the same bytes; a real
-      // one never does, and no single value dominates a 256-byte draw.
-      const grv = requireGrv();
-      const a = grv(new Uint8Array(32));
-      const b = grv(new Uint8Array(32));
-      assert(!bytesEqual(a, b), 'two 32-byte draws were identical');
-      const big = grv(new Uint8Array(256));
-      const counts = new Map<number, number>();
-      for (const v of big) counts.set(v, (counts.get(v) ?? 0) + 1);
-      let max = 0;
-      for (const n of counts.values()) if (n > max) max = n;
-      assert(max <= 256 * 0.9, `one byte value dominates (${max}/256)`);
-      return `draws differ, ${counts.size} distinct values in 256 bytes`;
-    },
-  ],
-  [
-    'random-uuid',
-    () => {
-      const uuid = G.crypto?.randomUUID;
-      assert(typeof uuid === 'function', 'randomUUID missing');
-      const a = uuid();
-      const b = uuid();
-      const v4 =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-      assert(v4.test(a), `not a v4 uuid: ${a}`);
-      assert(v4.test(b), `not a v4 uuid: ${b}`);
-      assert(a !== b, 'two calls returned the same uuid');
-      return a;
-    },
-  ],
-
   // -- base64 ---------------------------------------------------------------
 
   [
@@ -450,7 +332,7 @@ const CHECKS: readonly [string, Check][] = [
     () => {
       // core/src/keys.ts base64UrlEncode of a 32-byte public key.
       assert(typeof G.btoa === 'function', 'btoa missing');
-      const key = requireGrv()(new Uint8Array(32));
+      const key = new Uint8Array(32).map(() => Math.floor(Math.random() * 256));
       let bin = '';
       for (let i = 0; i < key.length; i++) bin += String.fromCharCode(key[i]!);
       const peerId = G.btoa(bin)
@@ -469,142 +351,6 @@ const CHECKS: readonly [string, Check][] = [
       const proto = Uint8Array.prototype as { toBase64?: unknown };
       const ctor = Uint8Array as unknown as { fromBase64?: unknown };
       return `Uint8Array#toBase64=${typeof proto.toBase64} Uint8Array.fromBase64=${typeof ctor.fromBase64} Buffer=${typeof G.Buffer} → btoa/atob fallback`;
-    },
-  ],
-
-  // -- text -----------------------------------------------------------------
-
-  [
-    'text-encoder',
-    () => {
-      const Encoder = requireEncoder();
-      const enc = new Encoder();
-      const got = hex(enc.encode('aé€🎉'));
-      assert(got === '61c3a9e282acf09f8e89', `encode('aé€🎉') = ${got}`);
-      assert(enc.encoding === 'utf-8', `encoding=${enc.encoding}`);
-      assert(typeof enc.encodeInto === 'function', 'encodeInto missing');
-      return `encode('aé€🎉')=${got}, encoding=utf-8, encodeInto present`;
-    },
-  ],
-  [
-    'text-decoder-present',
-    () => {
-      assert(typeof G.TextDecoder === 'function', `typeof=${typeof G.TextDecoder}`);
-      return 'typeof=function';
-    },
-  ],
-  [
-    'td-ctor-fatal',
-    () => {
-      // core/src/jwt.ts:5 and protocol/messages.ts:234, at module scope.
-      const Decoder = requireDecoder();
-      const strict = new Decoder('utf-8', { fatal: true });
-      assert(strict.fatal === true, `fatal=${strict.fatal}`);
-      assert(strict.encoding === 'utf-8', `encoding=${strict.encoding}`);
-      assert(strict.ignoreBOM === false, `ignoreBOM=${strict.ignoreBOM}`);
-      const dflt = new Decoder();
-      assert(dflt.fatal === false && dflt.encoding === 'utf-8', 'defaults wrong');
-      return `new TextDecoder('utf-8', {fatal:true}) ok, defaults fatal=false`;
-    },
-  ],
-  [
-    'td-roundtrip-astral',
-    () => {
-      const text = 'aé€🎉 你好';
-      const back = new (requireDecoder())().decode(new (requireEncoder())().encode(text));
-      assert(back === text, `got ${JSON.stringify(back)}`);
-      assert(back.length === 8, `length ${back.length}, expected 8 code units`);
-      return `${JSON.stringify(text)} round-trips (8 code units)`;
-    },
-  ],
-  [
-    'td-fatal-throws',
-    () => {
-      const strict = new (requireDecoder())('utf-8', { fatal: true });
-      const cases: [string, Uint8Array][] = [
-        ['ff fe', bytes(0xff, 0xfe)],
-        ['ed a0 80 (surrogate)', bytes(0xed, 0xa0, 0x80)],
-        ['c0 80 (overlong)', bytes(0xc0, 0x80)],
-        ['f4 90 80 80 (>U+10FFFF)', bytes(0xf4, 0x90, 0x80, 0x80)],
-        ['e2 82 (truncated)', bytes(0xe2, 0x82)],
-      ];
-      for (const [label, input] of cases) {
-        const e = expectThrow(() => strict.decode(input), `decode(${label})`);
-        assert(errorName(e) === 'TypeError', `${label} threw ${errorName(e)}`);
-      }
-      return `${cases.length} invalid inputs → TypeError`;
-    },
-  ],
-  [
-    'td-lossy',
-    () => {
-      // protocol/cells.ts:89 and protocol/merged.ts:57 decode lossily.
-      const lossy = new (requireDecoder())('utf-8', { fatal: false });
-      const cases: [Uint8Array, string][] = [
-        [bytes(0x61, 0xff, 0x62), 'a�b'],
-        [bytes(0xe2, 0x82), '�'],
-        [bytes(0xf0, 0x9f, 0x98, 0x61), '�a'],
-        [bytes(0xed, 0xa0, 0x80), '���'],
-        [bytes(0xc0, 0x80), '��'],
-      ];
-      for (const [input, want] of cases) {
-        const got = lossy.decode(input);
-        assert(got === want, `${hex(input)} → ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
-      }
-      return `'a\\uFFFDb' + ${cases.length - 1} WHATWG maximal-subpart cases`;
-    },
-  ],
-  [
-    'td-bom',
-    () => {
-      const Decoder = requireDecoder();
-      const withBom = bytes(0xef, 0xbb, 0xbf, 0x61);
-      const stripped = new Decoder().decode(withBom);
-      assert(stripped === 'a', `default kept BOM: ${JSON.stringify(stripped)}`);
-      const kept = new Decoder('utf-8', { ignoreBOM: true }).decode(withBom);
-      assert(kept === '﻿a', `ignoreBOM lost BOM: ${JSON.stringify(kept)}`);
-      return 'stripped by default, kept with ignoreBOM';
-    },
-  ],
-  [
-    'td-inputs',
-    () => {
-      const dec = new (requireDecoder())();
-      const enc = new (requireEncoder())();
-      const ab = enc.encode('hello').buffer;
-      assert(dec.decode(ab) === 'hello', 'ArrayBuffer input');
-      const big = new Uint8Array(16);
-      big.set(enc.encode('hello'), 5);
-      assert(dec.decode(big.subarray(5, 10)) === 'hello', 'subarray view input');
-      assert(dec.decode(new DataView(big.buffer, 5, 5)) === 'hello', 'DataView input');
-      assert(dec.decode() === '', 'no-argument decode');
-      assert(dec.decode(new Uint8Array(0)) === '', 'empty view');
-      return 'ArrayBuffer, offset view, DataView, no argument';
-    },
-  ],
-  [
-    'td-label',
-    () => {
-      const Decoder = requireDecoder();
-      assert(new Decoder('utf8').encoding === 'utf-8', "'utf8' alias");
-      assert(new Decoder(' UTF-8 ').encoding === 'utf-8', "' UTF-8 ' normalises");
-      const e = expectThrow(() => new Decoder('latin1'), "new TextDecoder('latin1')");
-      assert(errorName(e) === 'RangeError', `latin1 threw ${errorName(e)}`);
-      return "'utf8' → 'utf-8', 'latin1' → RangeError";
-    },
-  ],
-  [
-    'td-stream',
-    () => {
-      // Not used by the SDK; guards against `{stream:true}` being accepted
-      // and silently mis-decoding a split sequence.
-      const dec = new (requireDecoder())();
-      const all = new (requireEncoder())().encode('🎉x');
-      const first = dec.decode(all.subarray(0, 2), { stream: true });
-      assert(first === '', `partial sequence emitted ${JSON.stringify(first)}`);
-      const rest = dec.decode(all.subarray(2));
-      assert(rest === '🎉x', `got ${JSON.stringify(rest)}`);
-      return 'split 4-byte sequence reassembled across chunks';
     },
   ],
 
@@ -668,7 +414,10 @@ const CHECKS: readonly [string, Check][] = [
       assert(fired, 'setTimeout did not fire');
       assert(cancelled, 'clearTimeout did not prevent the callback');
       assert(settled >= 2, `setInterval fired ${settled} times`);
-      assert(ticks === settled, `setInterval kept firing after clearInterval (${ticks})`);
+      assert(
+        ticks === settled,
+        `setInterval kept firing after clearInterval (${ticks})`
+      );
       return `setTimeout fired, cleared one silent, setInterval ×${settled} then stopped`;
     },
   ],
@@ -702,7 +451,10 @@ const CHECKS: readonly [string, Check][] = [
     'async-iterator-symbol',
     () => {
       const sym = (Symbol as { asyncIterator?: unknown }).asyncIterator;
-      assert(typeof sym === 'symbol', `typeof Symbol.asyncIterator=${typeof sym}`);
+      assert(
+        typeof sym === 'symbol',
+        `typeof Symbol.asyncIterator=${typeof sym}`
+      );
       return `typeof symbol (${String(sym)})`;
     },
   ],
@@ -799,7 +551,10 @@ const CHECKS: readonly [string, Check][] = [
     'core-entry',
     () => {
       const core = loadCore();
-      assert(typeof core.FireflyClient === 'function', 'FireflyClient export missing');
+      assert(
+        typeof core.FireflyClient === 'function',
+        'FireflyClient export missing'
+      );
       assert(
         typeof core.loadOrCreateDeviceKey === 'function',
         'loadOrCreateDeviceKey export missing'
@@ -818,12 +573,26 @@ const CHECKS: readonly [string, Check][] = [
       const first = await entry.loadOrCreateDeviceKey(store);
       const coldMs = Date.now() - t0;
       assert(first.seed.length === 32, `seed length ${first.seed.length}`);
-      assert(first.publicKey.length === 32, `publicKey length ${first.publicKey.length}`);
-      assert(first.peerID.length === 43, `peerID length ${first.peerID.length}`);
+      assert(
+        first.publicKey.length === 32,
+        `publicKey length ${first.publicKey.length}`
+      );
+      assert(
+        first.peerID.length === 43,
+        `peerID length ${first.peerID.length}`
+      );
       const again = await entry.loadOrCreateDeviceKey(store);
-      assert(again.peerID === first.peerID, 'same store yielded a different peerID');
-      const other = await entry.loadOrCreateDeviceKey(new entry.InMemorySecureStorage());
-      assert(other.peerID !== first.peerID, 'fresh store reproduced the peerID');
+      assert(
+        again.peerID === first.peerID,
+        'same store yielded a different peerID'
+      );
+      const other = await entry.loadOrCreateDeviceKey(
+        new entry.InMemorySecureStorage()
+      );
+      assert(
+        other.peerID !== first.peerID,
+        'fresh store reproduced the peerID'
+      );
       return `seed=32 pub=32 peerID=${first.peerID} (ephemeral memory: stable on the same store, distinct on a fresh one, ${coldMs}ms cold)`;
     },
   ],
@@ -836,7 +605,7 @@ const CHECKS: readonly [string, Check][] = [
       // Both clients below share this store for this check only. `init()` is
       // loadOrCreateDeviceKey → OpSqliteDriver.open (WAL + libfirefly loaded
       // onto the handle) → firefly_init → pin developer_pubkey (base64url
-      // via btoa) → applyBundledMigrations (TextEncoder / DataView / BigInt
+      // via btoa) → applyBundledMigrations (DataView / BigInt
       // over the FMIG envelope) → the change-listener GC nudger. Nothing
       // touches the network. The DB file is deleted afterwards so every
       // launch runs the whole path on a fresh database.
@@ -850,7 +619,10 @@ const CHECKS: readonly [string, Check][] = [
         migrationTs: PROBE_MIGRATION_TS,
         sql: PROBE_MIGRATION_SQL,
       });
-      assert(core.readEnvelopeSeq(envelope) === 1, 'fixture envelope does not decode to seq 1');
+      assert(
+        core.readEnvelopeSeq(envelope) === 1,
+        'fixture envelope does not decode to seq 1'
+      );
       const store = new entry.InMemorySecureStorage();
       const db = open({ name: 'rnw-probe-client.db' });
       const probeDb = db as unknown as ProbeDb;
@@ -885,32 +657,47 @@ const CHECKS: readonly [string, Check][] = [
           'value'
         );
         const expected = core.base64UrlEncode(developer.publicKey);
-        assert(pinned === expected, `developer_pubkey pinned as ${String(pinned)}, want ${expected}`);
+        assert(
+          pinned === expected,
+          `developer_pubkey pinned as ${String(pinned)}, want ${expected}`
+        );
         const head = await scalar<number>(
           probeDb,
           'SELECT seq FROM _firefly_migration_chain ORDER BY seq DESC LIMIT 1',
           'seq'
         );
-        assert(Number(head) === 1, `migration chain head = ${String(head)}, want 1`);
+        assert(
+          Number(head) === 1,
+          `migration chain head = ${String(head)}, want 1`
+        );
         const table = await scalar<string>(
           probeDb,
           `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${PROBE_TABLE}'`,
           'name'
         );
-        assert(table === PROBE_TABLE, `migration SQL did not create ${PROBE_TABLE}`);
+        assert(
+          table === PROBE_TABLE,
+          `migration SQL did not create ${PROBE_TABLE}`
+        );
         await client.close();
         // A second client over the same handle and in-memory store: the
         // pinned pubkey must agree, the chain head stays at 1 (no re-apply),
         // and the peer is the same for this store's lifetime.
         const again = make();
         await again.init();
-        assert(again.peerID === peerID, `re-init changed the peer (${again.peerID})`);
+        assert(
+          again.peerID === peerID,
+          `re-init changed the peer (${again.peerID})`
+        );
         const headAgain = await scalar<number>(
           probeDb,
           'SELECT seq FROM _firefly_migration_chain ORDER BY seq DESC LIMIT 1',
           'seq'
         );
-        assert(Number(headAgain) === 1, `chain head after re-init = ${String(headAgain)}`);
+        assert(
+          Number(headAgain) === 1,
+          `chain head after re-init = ${String(headAgain)}`
+        );
         await again.close();
         return `init() ok in ${ms}ms: peerID=${peerID} (ephemeral in-memory seed agrees), developer_pubkey pinned, migration seq 1 applied (${PROBE_TABLE} created + tracked), re-init over the same handle and memory store idempotent`;
       } finally {
@@ -934,7 +721,9 @@ function report(line: string): void {
   console.log(line);
 }
 
-async function runChecks(push: (r: CheckResult) => void): Promise<{ pass: number; fail: number }> {
+async function runChecks(
+  push: (r: CheckResult) => void
+): Promise<{ pass: number; fail: number }> {
   let pass = 0;
   let fail = 0;
   for (const [name, check] of CHECKS) {

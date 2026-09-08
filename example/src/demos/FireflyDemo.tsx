@@ -37,8 +37,7 @@ type DriverEntry = typeof import('@fireflydb/op-sqlite-driver');
 /// watchOS-specific message before touching its argument when
 /// `crypto.getRandomValues` is missing; the iOS entry has no such guard, so
 /// seeing that message is direct evidence the `.watchos.ts` entry was picked.
-/// The runtime now installs `crypto.getRandomValues` (Stage 2), so the probe
-/// hides it for the duration of one call to make the guard observable.
+/// The probe hides the global for one call in case the app installed it.
 interface DriverEntryProbe {
   /** The evaluated package entry, or null when evaluation threw. */
   entry: DriverEntry | null;

@@ -17,7 +17,6 @@ import './setupSelfGlobal';
 
 // Language / scheduling globals first, so everything after sees the full set.
 import './setupWebGlobals';
-import './setupCrypto';
 
 // WHATWG `fetch` + `Headers` + `Request` + `Response` polyfill. Reads
 // `globalThis.XMLHttpRequest`, which RNWHermesHost installs via

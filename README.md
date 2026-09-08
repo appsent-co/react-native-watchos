@@ -61,11 +61,9 @@ digital crown rotation and sensory feedback. See
 **JS runtime** — Hermes embedded on watchOS via JSI, with `console.*`,
 timers, `queueMicrotask`, `fetch` / `XMLHttpRequest`, a WHATWG `WebSocket`
 (subprotocols, React Native's `{ headers }` argument, binary frames as
-`ArrayBuffer`, `addEventListener`, `close(code, reason)`),
-`crypto.getRandomValues` / `randomUUID`
-(`SecRandomCopyBytes`), `TextDecoder` and `Symbol.asyncIterator`
-installed; `atob` / `btoa`, `TextEncoder` and `BigInt` come from Hermes
-itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
+`ArrayBuffer`, `addEventListener`, `close(code, reason)`) and
+`Symbol.asyncIterator` installed; `atob` / `btoa` and `BigInt` come from
+Hermes itself. See [`docs/docs/runtime-globals.md`](./docs/docs/runtime-globals.md).
 
 **TurboModules** — Create native modules in Swift / Obj-C++ and call
 them from JS with full codegen support.

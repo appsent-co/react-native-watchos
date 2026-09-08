@@ -303,7 +303,10 @@ interface RNWebSocketCtor {
 }
 
 class RNWebSocketDriver {
-  async connect(url: string, headers: Record<string, string>): Promise<DomWsConn> {
+  async connect(
+    url: string,
+    headers: Record<string, string>
+  ): Promise<DomWsConn> {
     const ctor = (globalThis as { WebSocket?: unknown }).WebSocket as
       | RNWebSocketCtor
       | undefined;
@@ -427,10 +430,32 @@ function decodeHeadersFrame(data: unknown): Record<string, string> {
   if (!(data instanceof ArrayBuffer)) {
     throw new Error(`headers frame is ${typeof data}, not ArrayBuffer`);
   }
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(data))) as Record<
-    string,
-    string
-  >;
+  return JSON.parse(utf8Decode(new Uint8Array(data))) as Record<string, string>;
+}
+
+/// The runtime has no `TextDecoder`; the headers JSON is ASCII, but decode
+/// UTF-8 properly anyway so a non-ASCII header value still parses.
+function utf8Decode(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; ) {
+    const b0 = bytes[i++]!;
+    let cp: number;
+    if (b0 < 0x80) cp = b0;
+    else if (b0 < 0xe0) cp = ((b0 & 0x1f) << 6) | (bytes[i++]! & 0x3f);
+    else if (b0 < 0xf0)
+      cp =
+        ((b0 & 0x0f) << 12) |
+        ((bytes[i++]! & 0x3f) << 6) |
+        (bytes[i++]! & 0x3f);
+    else
+      cp =
+        ((b0 & 0x07) << 18) |
+        ((bytes[i++]! & 0x3f) << 12) |
+        ((bytes[i++]! & 0x3f) << 6) |
+        (bytes[i++]! & 0x3f);
+    out += String.fromCodePoint(cp);
+  }
+  return out;
 }
 
 /// Resolves with the first message event; the listener is attached before
@@ -629,7 +654,7 @@ function buildChecks(): Array<[string, Check]> {
         const token = 'eyJhbGciOiJIUzI1NiJ9.e30.sig';
         const ws = new WS!(wsUrl('/headers'), undefined, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`,
             'X-Custom': 'hello',
             'Sec-WebSocket-Version': '7',
           },
@@ -877,7 +902,11 @@ function buildChecks(): Array<[string, Check]> {
             `${code} close`
           );
           seen.push(`${ev.code}:${JSON.stringify(ev.reason)}`);
-          if (ev.code !== code || ev.reason !== reason || ev.wasClean !== true) {
+          if (
+            ev.code !== code ||
+            ev.reason !== reason ||
+            ev.wasClean !== true
+          ) {
             throw new Error(
               `sent ${code} ${JSON.stringify(reason)}, got code=${ev.code} reason=${JSON.stringify(ev.reason)} wasClean=${ev.wasClean}`
             );
@@ -1086,11 +1115,14 @@ function buildChecks(): Array<[string, Check]> {
         );
         const it = conn.recv();
         const first = await withTimeout(it.next(), 8000, 'recv()');
-        if (first.done) throw new Error('recv() ended before the headers frame');
-        const seen = decodeHeadersFrame(first.value.buffer.slice(
-          first.value.byteOffset,
-          first.value.byteOffset + first.value.byteLength
-        ));
+        if (first.done)
+          throw new Error('recv() ended before the headers frame');
+        const seen = decodeHeadersFrame(
+          first.value.buffer.slice(
+            first.value.byteOffset,
+            first.value.byteOffset + first.value.byteLength
+          )
+        );
         await conn.close(1000, '');
         const detail = `authorization=${JSON.stringify(seen.authorization)} (frame via DomWsConn.recv)`;
         if (seen.authorization !== `Bearer ${token}`) throw new Error(detail);

@@ -41,7 +41,6 @@ function runtime() {
   };
   const context = vm.createContext({
     __RNW_ws_connect: connect,
-    TextEncoder,
     ArrayBuffer,
     reportError: (error) => errors.push(error),
   });
