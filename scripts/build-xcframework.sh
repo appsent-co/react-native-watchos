@@ -70,7 +70,13 @@ if [ ! -d "$HERMES_SOURCE/.git" ]; then
     git clone https://github.com/facebook/hermes.git "$HERMES_SOURCE"
     ( cd "$HERMES_SOURCE" && git checkout "$HERMES_REF" )
 else
-    echo "Reusing existing Hermes source at $HERMES_SOURCE"
+    # The clone persists across runs; move it to the ref React Native now
+    # declares. Local edits are the watchOS patches, reapplied below.
+    echo "Reusing existing Hermes source at $HERMES_SOURCE (checking out $HERMES_REF)"
+    ( cd "$HERMES_SOURCE" \
+        && git reset --hard --quiet \
+        && git fetch --tags --quiet origin \
+        && git checkout --quiet "$HERMES_REF" )
 fi
 
 # Apply Hermes watchOS patches (idempotent — checks for existing markers)
