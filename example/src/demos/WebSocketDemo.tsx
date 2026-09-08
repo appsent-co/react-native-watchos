@@ -424,38 +424,13 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/// `/headers` answers with one binary frame: the JSON of the upgrade
+/// `/headers` answers with one text frame: the JSON of the upgrade
 /// request's headers as the server saw them (names lower-cased by Node).
 function decodeHeadersFrame(data: unknown): Record<string, string> {
-  if (!(data instanceof ArrayBuffer)) {
-    throw new Error(`headers frame is ${typeof data}, not ArrayBuffer`);
+  if (typeof data !== 'string') {
+    throw new Error(`headers frame is ${typeof data}, not string`);
   }
-  return JSON.parse(utf8Decode(new Uint8Array(data))) as Record<string, string>;
-}
-
-/// The runtime has no `TextDecoder`; the headers JSON is ASCII, but decode
-/// UTF-8 properly anyway so a non-ASCII header value still parses.
-function utf8Decode(bytes: Uint8Array): string {
-  let out = '';
-  for (let i = 0; i < bytes.length; ) {
-    const b0 = bytes[i++]!;
-    let cp: number;
-    if (b0 < 0x80) cp = b0;
-    else if (b0 < 0xe0) cp = ((b0 & 0x1f) << 6) | (bytes[i++]! & 0x3f);
-    else if (b0 < 0xf0)
-      cp =
-        ((b0 & 0x0f) << 12) |
-        ((bytes[i++]! & 0x3f) << 6) |
-        (bytes[i++]! & 0x3f);
-    else
-      cp =
-        ((b0 & 0x07) << 18) |
-        ((bytes[i++]! & 0x3f) << 12) |
-        ((bytes[i++]! & 0x3f) << 6) |
-        (bytes[i++]! & 0x3f);
-    out += String.fromCodePoint(cp);
-  }
-  return out;
+  return JSON.parse(data) as Record<string, string>;
 }
 
 /// Resolves with the first message event; the listener is attached before
@@ -659,7 +634,6 @@ function buildChecks(): Array<[string, Check]> {
             'Sec-WebSocket-Version': '7',
           },
         });
-        ws.binaryType = 'arraybuffer';
         const pending = firstMessage(ws, 'headers frame');
         await withTimeout(awaitWsOpen(ws), 8000, 'open with headers');
         const seen = decodeHeadersFrame((await pending).data);
@@ -681,7 +655,6 @@ function buildChecks(): Array<[string, Check]> {
         const ws = new WS!(wsUrl('/headers'), ['fireflydb', 'bearer.x'], {
           headers: { Authorization: 'Bearer t' },
         });
-        ws.binaryType = 'arraybuffer';
         const pending = firstMessage(ws, 'headers frame');
         await withTimeout(awaitWsOpen(ws), 8000, 'open with both');
         const negotiated = ws.protocol;

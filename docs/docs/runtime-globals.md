@@ -104,8 +104,8 @@ browser-targeted libraries. Runtime limitations are listed below:
   `InvalidStateError` while `CONNECTING`; silently dropped once `CLOSING` or
   `CLOSED`. Strings go out as text frames, buffers as binary frames.
 - **`close(code?, reason?)`** — `code` must be `1000` or `3000`–`4999`
-  (`InvalidAccessError` otherwise), `reason` at most 123 UTF-8 bytes
-  (`SyntaxError`). With no code, `1000` is sent.
+  (`InvalidAccessError` otherwise); `reason` is forwarded as given, as in
+  React Native. With no code, `1000` is sent.
 - **`addEventListener(type, listener, { once })`**,
   **`removeEventListener(type, listener)`**, **`dispatchEvent(event)`**, and
   the `onopen` / `onmessage` / `onerror` / `onclose` handlers. The `on*`

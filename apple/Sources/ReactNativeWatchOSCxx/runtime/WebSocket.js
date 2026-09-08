@@ -10,27 +10,6 @@
   const LIVE = new Set();
   let warnedBlob = false;
 
-  // UTF-8 byte length of a string: 1-3 bytes per UTF-16 code unit, 4 for a
-  // surrogate pair.
-  function utf8ByteLength(str) {
-    let bytes = 0;
-    for (let i = 0; i < str.length; i++) {
-      const c = str.charCodeAt(i);
-      if (c < 0x80) bytes += 1;
-      else if (c < 0x800) bytes += 2;
-      else if (
-        c >= 0xd800 &&
-        c <= 0xdbff &&
-        i + 1 < str.length &&
-        (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00
-      ) {
-        bytes += 4;
-        i++;
-      } else bytes += 3;
-    }
-    return bytes;
-  }
-
   function makeError(name, message) {
     const e = new Error(message);
     e.name = name;
@@ -405,12 +384,6 @@
     }
     if (reason !== undefined) {
       reason = String(reason);
-      if (utf8ByteLength(reason) > 123) {
-        throw makeError(
-          'SyntaxError',
-          'WebSocket.close: reason must not exceed 123 UTF-8 bytes'
-        );
-      }
     }
     const state = this._state;
     if (state.readyState === CLOSING || state.readyState === CLOSED) return;
