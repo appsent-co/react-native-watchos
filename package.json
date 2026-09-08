@@ -85,14 +85,16 @@
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
+    "expo": "~57.0.21",
     "globals": "^15.14.0",
     "prettier": "^3.6.2",
-    "react": "19.1.0",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
     "release-it": "^19.0.4",
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@expo/config-plugins": "^54.0.0",
+    "@expo/config-plugins": "^57.0.0",
     "@expo/plist": "^0.4.8",
     "react-reconciler": "0.32.0",
     "whatwg-fetch": "^3.6.20"
@@ -101,8 +103,7 @@
     "src/polyfills.ts",
     "src/setupConsole.ts",
     "src/setupSelfGlobal.ts",
-    "src/setupWebGlobals.ts",
-    "src/setupCrypto.ts"
+    "src/setupWebGlobals.ts"
   ],
   "peerDependencies": {
     "@bacons/apple-targets": ">=4.0.0",

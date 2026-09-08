@@ -5,6 +5,7 @@ export interface MetroResolverConfig {
 }
 
 export interface MetroConfigLike {
+  projectRoot?: string;
   resolver?: MetroResolverConfig;
   [key: string]: unknown;
 }
@@ -14,6 +15,10 @@ export interface MetroConfigLike {
  * resolver platform. Once registered, Metro resolves
  * `foo.watchos.{ts,tsx,js,jsx}` before falling back to `foo.{ts,tsx,js,jsx}`
  * whenever a bundle is requested with `?platform=watchos`.
+ *
+ * Also teaches Expo's autolinking helper (resolved from `projectRoot`)
+ * that `watchos` has no React Native host package, which Expo CLI 57+
+ * asks about during resolution.
  *
  * Idempotent: safe to call more than once on the same config.
  */
